@@ -1,5 +1,4 @@
 import os
-import subprocess
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -21,18 +20,16 @@ def index(request: Request):
 def save(
     api_id: str = Form(...),
     api_hash: str = Form(...),
-    session: str = Form(...),
+    session_string: str = Form(...),
     dest_chat: str = Form(...),
     source_chats: str = Form(...),
 ):
     with open(ENV_PATH, "w") as f:
         f.write(f"API_ID={api_id}\n")
         f.write(f"API_HASH={api_hash}\n")
-        f.write(f"SESSION={session}\n")
+        f.write(f"SESSION_STRING={session_string}\n")
         f.write(f"DEST_CHAT={dest_chat}\n")
         f.write(f"SOURCE_CHATS={source_chats}\n")
 
-    # Reinicia o container (Docker Compose)
-    subprocess.Popen(["/usr/bin/supervisorctl", "restart", "mirror"])
-
+    # O restart é feito manualmente via Docker Compose
     return RedirectResponse("/", status_code=303)
