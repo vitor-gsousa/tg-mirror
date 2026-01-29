@@ -22,23 +22,6 @@ docker compose build
 docker compose up -d
 ```
 
-## Primeira execução (login Telegram)
-
-Na primeira vez surge os seguintes inputs:
-
-```yaml
-Please enter your phone number:
-Please enter the code you received:
-```
-
-👉 Introduz:
-
-* número de telefone
-* código recebido no Telegram
-* password 2FA (se existir)
-
-A sessão fica guardada no volume `/config`.
-
 ## Aceder à interface Web
 
 No browser aceder a:
