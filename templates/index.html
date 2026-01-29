@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Telegram Mirror Config</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+    label { display: block; margin-top: 15px; }
+    input, textarea { width: 100%; padding: 6px; }
+    button { margin-top: 20px; padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <h2>Telegram Mirror – Configuração</h2>
+  <form method="post" action="/save">
+    <label>API_ID
+      <input name="api_id" value="{{ cfg.API_ID }}">
+    </label>
+
+    <label>API_HASH
+      <input name="api_hash" value="{{ cfg.API_HASH }}">
+    </label>
+
+    <label>SESSION
+      <input name="session" value="{{ cfg.SESSION }}">
+    </label>
+
+    <label>DEST_CHAT
+      <input name="dest_chat" value="{{ cfg.DEST_CHAT }}">
+    </label>
+
+    <label>SOURCE_CHATS (separados por vírgula)
+      <textarea name="source_chats">{{ cfg.SOURCE_CHATS }}</textarea>
+    </label>
+
+    <button type="submit">Guardar e Reiniciar</button>
+  </form>
+</body>
+</html>
