@@ -7,6 +7,7 @@ Editar e inserir valores:
 
 * API_ID
 * API_HASH
+* SESSION_STRING
 * DEST_CHAT
 * SOURCE_CHATS
 
