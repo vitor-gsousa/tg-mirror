@@ -58,11 +58,23 @@ async def handler(event):
     if cur.fetchone():
         return
 
-    await client.forward_messages(
-        DEST_CHAT,
-        event.message,
-        silent=True
-    )
+    msg = event.message
+
+    if msg.media:
+        await client.send_file(
+            DEST_CHAT,
+            msg.media,
+            caption=msg.text or "",
+            formatting_entities=msg.entities,
+            silent=True
+        )
+    else:
+        await client.send_message(
+            DEST_CHAT,
+            msg.text or "",
+            formatting_entities=msg.entities,
+            silent=True
+        )
 
     cur.execute(
         "INSERT OR IGNORE INTO processed VALUES (?, ?)",
