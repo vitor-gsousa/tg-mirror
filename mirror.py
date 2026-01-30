@@ -1,12 +1,27 @@
 import os
+import json
 import sqlite3
 from dotenv import load_dotenv
-
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
-# carregar .env
 load_dotenv("/config/.env")
+
+STATS_PATH = "/data/stats.json"
+
+def save_stats(data):
+    with open(STATS_PATH, "w") as f:
+        json.dump(data, f)
+
+def load_stats():
+    if not os.path.exists(STATS_PATH):
+        return {"messages": 0, "status": "starting"}
+    with open(STATS_PATH) as f:
+        return json.load(f)
+
+stats = load_stats()
+stats["status"] = "running"
+save_stats(stats)
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
@@ -82,7 +97,13 @@ async def handler(event):
         (chat_id, msg_id)
     )
     conn.commit()
+    stats["messages"] += 1
+    save_stats(stats)
+
 
 # arrancar
 client.start()
 client.run_until_disconnected()
+
+stats["status"] = "stopped"
+save_stats(stats)
