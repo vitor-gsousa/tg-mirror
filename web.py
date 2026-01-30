@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, Form, Depends
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import HTTPException, status
 from dotenv import dotenv_values, load_dotenv
 
 load_dotenv("/config/.env")
@@ -21,9 +22,13 @@ security = HTTPBasic()
 # ---------- AUTH ----------
 
 def auth(credentials: HTTPBasicCredentials = Depends(security)):
-    if credentials.password != ADMIN_PASSWORD:
-        raise Exception("Unauthorized")
 
+    if credentials.password != ADMIN_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Wrong password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
 # ---------- HELPERS ----------
 
