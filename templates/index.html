@@ -1,47 +1,175 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt">
 <head>
-  <meta charset="utf-8">
-  <title>Telegram Mirror Config</title>
-  <style>
-    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
-    label { display: block; margin-top: 15px; }
-    input, textarea { width: 100%; padding: 6px; }
-    button { margin-top: 20px; padding: 10px 20px; }
-    .note { margin-top: 20px; font-size: 0.9em; color: #555; }
-  </style>
+<meta charset="utf-8">
+<title>Telegram Mirror</title>
+<meta name="viewport" content="width=device-width">
+
+<style>
+body {
+  font-family: system-ui;
+  background: #f4f6f9;
+  margin: 0;
+}
+
+.container {
+  max-width: 900px;
+  margin: auto;
+  padding: 25px;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 8px 16px;
+  background: #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: #2563eb;
+  color: white;
+}
+
+.panel {
+  display: none;
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+}
+
+.panel.active {
+  display: block;
+}
+
+.stat {
+  font-size: 1.1rem;
+  margin: 8px 0;
+}
+
+button {
+  padding: 8px 18px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+textarea, input {
+  width: 100%;
+  padding: 8px;
+}
+</style>
 </head>
+
 <body>
-  <h2>Telegram Mirror – Configuração</h2>
 
-  <form method="post" action="/save">
+<div class="container">
 
-    <label>API_ID
-      <input name="api_id" value="{{ cfg.API_ID or '' }}">
-    </label>
+<h2>Telegram Mirror</h2>
 
-    <label>API_HASH
-      <input name="api_hash" value="{{ cfg.API_HASH or '' }}">
-    </label>
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" onclick="openTab('status')">Estado</div>
+  <div class="tab" onclick="openTab('config')">Configuração</div>
+  <div class="tab" onclick="openTab('logs')">Logs</div>
+  <div class="tab" onclick="openTab('db')">DB</div>
+</div>
 
-    <label>SESSION_STRING
-      <textarea name="session_string" rows="3">{{ cfg.SESSION_STRING or '' }}</textarea>
-    </label>
+<!-- STATUS -->
+<div id="status" class="panel active">
 
-    <label>DEST_CHAT
-      <input name="dest_chat" value="{{ cfg.DEST_CHAT or '' }}">
-    </label>
+  <div class="stat">
+    🟢 Estado: <b>{{ stats.status }}</b>
+  </div>
 
-    <label>SOURCE_CHATS (separados por vírgula)
-      <textarea name="source_chats" rows="3">{{ cfg.SOURCE_CHATS or '' }}</textarea>
-    </label>
+  <div class="stat">
+    📩 Mensagens: <b>{{ stats.messages }}</b>
+  </div>
 
-    <button type="submit">Guardar</button>
+  <form method="post" action="/restart">
+    <button>Reiniciar Bot</button>
   </form>
 
-  <div class="note">
-    ⚠️ Após guardar, é necessário reiniciar o container para aplicar as alterações.
-  </div>
+</div>
+
+<!-- CONFIG -->
+<div id="config" class="panel">
+
+<form method="post" action="/save">
+
+<label>API ID</label>
+<input name="api_id" value="{{ cfg.API_ID }}">
+
+<label>API HASH</label>
+<input name="api_hash" value="{{ cfg.API_HASH }}">
+
+<label>SESSION STRING</label>
+<textarea name="session_string">{{ cfg.SESSION_STRING }}</textarea>
+
+<label>DEST CHAT</label>
+<input name="dest_chat" value="{{ cfg.DEST_CHAT }}">
+
+<label>SOURCE CHATS</label>
+<textarea name="source_chats">{{ cfg.SOURCE_CHATS }}</textarea>
+
+<br><br>
+<button>Guardar</button>
+
+</form>
+
+</div>
+
+<!-- LOGS -->
+<div id="logs" class="panel">
+
+<pre>
+docker logs tg-mirror
+(ver terminal)
+</pre>
+
+<p>
+Para já, os logs são via terminal:
+<br>
+<code>docker logs -f tg-mirror</code>
+</p>
+
+</div>
+
+<!-- DB -->
+<div id="db" class="panel">
+
+<p>Apagar histórico (duplicados serão reenviados)</p>
+
+<form method="post" action="/clear-db">
+  <button style="background:#dc2626">Limpar Base de Dados</button>
+</form>
+
+</div>
+
+</div>
+
+<script>
+function openTab(name){
+
+  document.querySelectorAll(".tab").forEach(t=>{
+    t.classList.remove("active")
+  })
+
+  document.querySelectorAll(".panel").forEach(p=>{
+    p.classList.remove("active")
+  })
+
+  document.getElementById(name).classList.add("active")
+  event.target.classList.add("active")
+}
+</script>
 
 </body>
 </html>
