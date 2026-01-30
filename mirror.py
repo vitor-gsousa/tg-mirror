@@ -35,6 +35,7 @@ SOURCE_CHATS = [
 
 # SQLite (persistência)
 DB_PATH = "/data/state.db"
+os.makedirs("/data", exist_ok=True)
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
 cur.execute("""
