@@ -37,7 +37,7 @@ cd tg-mirror
 Build and start the service in the background:
 
 ```shell
-docker compose build
+docker compose build # plus `--no-cache` if you want to rebuild from scratch
 docker compose up -d
 ```
 
