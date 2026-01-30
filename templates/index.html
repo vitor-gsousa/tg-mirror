@@ -76,25 +76,25 @@ textarea, input {
 
 <!-- Tabs -->
 <div class="tabs">
-  <div class="tab active" onclick="openTab('status')">Estado</div>
-  <div class="tab" onclick="openTab('config')">Configuração</div>
-  <div class="tab" onclick="openTab('logs')">Logs</div>
-  <div class="tab" onclick="openTab('db')">DB</div>
+  <div class="tab active" onclick="openTab('status')">Status</div>
+    <div class="tab" onclick="openTab('config')">Configuration</div>
+    <div class="tab" onclick="openTab('logs')">Logs</div>
+    <div class="tab" onclick="openTab('db')">DB</div>
 </div>
 
 <!-- STATUS -->
 <div id="status" class="panel active">
 
   <div class="stat">
-    🟢 Estado: <b>{{ stats.status }}</b>
+    🟢 Status: <b>{{ stats.status }}</b>
   </div>
 
   <div class="stat">
-    📩 Mensagens: <b>{{ stats.messages }}</b>
+    📩 Messages: <b>{{ stats.messages }}</b>
   </div>
 
   <form method="post" action="/restart">
-    <button>Reiniciar Bot</button>
+    <button>Restart Bot</button>
   </form>
 
 </div>
@@ -120,7 +120,7 @@ textarea, input {
 <textarea name="source_chats">{{ cfg.SOURCE_CHATS }}</textarea>
 
 <br><br>
-<button>Guardar</button>
+<button>Save</button>
 
 </form>
 
@@ -131,11 +131,11 @@ textarea, input {
 
 <pre>
 docker logs tg-mirror
-(ver terminal)
+(see terminal)
 </pre>
 
 <p>
-Para já, os logs são via terminal:
+For now, logs are via terminal:
 <br>
 <code>docker logs -f tg-mirror</code>
 </p>
@@ -145,10 +145,10 @@ Para já, os logs são via terminal:
 <!-- DB -->
 <div id="db" class="panel">
 
-<p>Apagar histórico (duplicados serão reenviados)</p>
+<p>Delete history (duplicates will be resent)</p>
 
 <form method="post" action="/clear-db">
-  <button style="background:#dc2626">Limpar Base de Dados</button>
+  <button style="background:#dc2626">Clear Database</button>
 </form>
 
 </div>
