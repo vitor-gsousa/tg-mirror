@@ -29,7 +29,6 @@ API_HASH = os.environ["API_HASH"]
 SESSION_STRING = os.environ.get("SESSION_STRING")
 SESSION_NAME = os.environ.get("SESSION", "mirror")
 
-# criar client corretamente (UMA VEZ)
 if SESSION_STRING:
     client = TelegramClient(
         StringSession(SESSION_STRING),
@@ -48,7 +47,7 @@ SOURCE_CHATS = [
     int(x.strip()) for x in os.environ["SOURCE_CHATS"].split(",")
 ]
 
-# SQLite (persistência)
+# SQLite (persistence)
 DB_PATH = "/data/state.db"
 os.makedirs("/data", exist_ok=True)
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -101,7 +100,7 @@ async def handler(event):
     save_stats(stats)
 
 
-# arrancar
+# start
 client.start()
 client.run_until_disconnected()
 
