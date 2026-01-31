@@ -6,6 +6,7 @@ import threading
 import signal
 import uvicorn
 import atexit
+import asyncio
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -133,6 +134,10 @@ async def handler(event):
         stats["messages"] += 1
         save_stats(stats)
 
+@app.get("/")
+def health():
+    return {"status": "ok"}
+
 @app.post("/internal/restart")
 def internal_restart():
     os.kill(os.getpid(), signal.SIGTERM)
@@ -140,8 +145,16 @@ def internal_restart():
 
 # start
 def run_bot():
-    client.start()
-    client.run_until_disconnected()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def main():
+        await client.start()
+        await client.run_until_disconnected()
+
+    loop.run_until_complete(main())
+    loop.close()
 
 def shutdown():
     stats["status"] = "stopped"
