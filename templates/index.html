@@ -252,7 +252,7 @@ th {
     <div class="title-badge">✈️</div>
     <div>
       <h2>Telegram Mirror</h2>
-      <div class="subtitle">Painel de controlo e configuração</div>
+      <div class="subtitle">Control and configuration panel</div>
     </div>
   </div>
 </div>
@@ -325,15 +325,15 @@ th {
 
 <form method="post" action="/add-source-chat" class="form-grid" style="margin-top:18px">
   <div>
-    <label>Adicionar Source Chat ID</label>
+    <label>Add Source Chat ID</label>
     <input name="chat_id" placeholder="-100123456789">
   </div>
   <div>
-    <label>Nome do canal (opcional)</label>
-    <input name="name" placeholder="Canal Principal">
+    <label>Channel name (optional)</label>
+    <input name="name" placeholder="Main Channel">
   </div>
   <div class="full actions">
-    <button>Adicionar canal</button>
+    <button>Add channel</button>
   </div>
 </form>
 
@@ -343,14 +343,14 @@ th {
 <div id="logs" class="panel">
 
 <pre>
-<span id="logs-output">A carregar logs...</span>
+<span id="logs-output">Loading logs...</span>
 </pre>
 
 <div class="actions">
   <button type="button" onclick="loadLogs()">Refresh Logs</button>
 </div>
 
-<p class="hint">Logs em tempo real via interface.</p>
+<p class="hint">Logs in real time via the interface.</p>
 
 </div>
 
@@ -361,8 +361,8 @@ th {
       <thead>
         <tr>
           <th>Chat ID</th>
-          <th>Nome</th>
-          <th>Mensagens</th>
+          <th>Name</th>
+          <th>Messages</th>
         </tr>
       </thead>
       <tbody>
@@ -399,18 +399,18 @@ async function loadLogs(){
   const output = document.getElementById("logs-output")
   if (!output) return
 
-  output.textContent = "A carregar logs..."
+  output.textContent = "Loading logs..."
 
   try {
     const res = await fetch("/logs")
     if (!res.ok) {
-      output.textContent = `Erro ao carregar logs (${res.status})`
+      output.textContent = `Failed to load logs (${res.status})`
       return
     }
     const text = await res.text()
-    output.textContent = text || "Sem logs."
+    output.textContent = text || "No logs."
   } catch (e) {
-    output.textContent = "Erro ao carregar logs"
+    output.textContent = "Failed to load logs"
   }
 }
 
