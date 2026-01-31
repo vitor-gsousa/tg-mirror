@@ -334,6 +334,8 @@ code {
 </div>
 
 <script>
+let logsIntervalId = null
+
 async function loadLogs(){
   const output = document.getElementById("logs-output")
   if (!output) return
@@ -372,6 +374,12 @@ function openTab(name, el){
 
   if (name === "logs") {
     loadLogs()
+    if (!logsIntervalId) {
+      logsIntervalId = setInterval(loadLogs, 5000)
+    }
+  } else if (logsIntervalId) {
+    clearInterval(logsIntervalId)
+    logsIntervalId = null
   }
 }
 </script>
