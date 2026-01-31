@@ -1,73 +1,40 @@
 import os
 import json
-import asyncio
-import logging
-import aiosqlite
-
+import sqlite3
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-
-
-# ---------- LOG ----------
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger("mirror")
-
-
-# ---------- CONFIG ----------
+from asyncio import Lock
+db_lock = Lock()
 
 load_dotenv("/config/.env")
 
-DATA_DIR = "/data"
-STATS_PATH = f"{DATA_DIR}/stats.json"
-DB_PATH = f"{DATA_DIR}/state.db"
+STATS_PATH = "/data/stats.json"
 
-os.makedirs(DATA_DIR, exist_ok=True)
-
-
-# ---------- STATS ----------
-
-stats_lock = asyncio.Lock()
-
-
-async def save_stats(data):
-    async with stats_lock:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            lambda: json.dump(data, open(STATS_PATH, "w"))
-        )
-
+def save_stats(data):
+    with open(STATS_PATH, "w") as f:
+        json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
 
 def load_stats():
     if not os.path.exists(STATS_PATH):
         return {"messages": 0, "status": "starting"}
-
-    try:
-        return json.load(open(STATS_PATH))
-    except:
-        return {"messages": 0, "status": "reset"}
-
+    with open(STATS_PATH) as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {"messages": 0, "status": "reset"}
 
 stats = load_stats()
-
-
-# ---------- TELEGRAM ----------
+stats["status"] = "running"
+save_stats(stats)
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 
 SESSION_STRING = os.environ.get("SESSION_STRING")
-
-DEST_CHAT = int(os.environ["DEST_CHAT"])
-SOURCE_CHATS = [
-    int(x.strip()) for x in os.environ["SOURCE_CHATS"].split(",")
-]
-
+SESSION_NAME = os.environ.get("SESSION", "mirror")
 
 if SESSION_STRING:
     client = TelegramClient(
@@ -76,90 +43,85 @@ if SESSION_STRING:
         API_HASH
     )
 else:
-    client = TelegramClient("mirror", API_ID, API_HASH)
+    client = TelegramClient(
+        SESSION_NAME,
+        API_ID,
+        API_HASH
+    )
 
+DEST_CHAT = int(os.environ["DEST_CHAT"])
+SOURCE_CHATS = [
+    int(x.strip()) for x in os.environ["SOURCE_CHATS"].split(",")
+]
 
-# ---------- DB ----------
-
-db = None
-
-
-async def init_db():
-
-    global db
-
-    db = await aiosqlite.connect(DB_PATH)
-
-    await db.execute("PRAGMA journal_mode=WAL;")
-
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS processed (
-            chat_id INTEGER,
-            message_id INTEGER,
-            PRIMARY KEY (chat_id, message_id)
-        )
-    """)
-
-    await db.commit()
-
-
-# ---------- HANDLER ----------
+# SQLite (persistence)
+DB_PATH = "/data/state.db"
+os.makedirs("/data", exist_ok=True)
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn.execute("PRAGMA journal_mode=WAL;")
+cur = conn.cursor()
+cur.execute("""
+CREATE TABLE IF NOT EXISTS processed (
+    chat_id INTEGER,
+    message_id INTEGER,
+    PRIMARY KEY (chat_id, message_id)
+)
+""")
+conn.commit()
 
 @client.on(events.NewMessage(chats=SOURCE_CHATS))
 async def handler(event):
-
     chat_id = event.chat_id
     msg_id = event.id
 
-    async with db.execute(
-        "SELECT 1 FROM processed WHERE chat_id=? AND message_id=?",
-        (chat_id, msg_id)
-    ) as cur:
-
-        if await cur.fetchone():
+    async with db_lock:
+        cur.execute(
+            "SELECT 1 FROM processed WHERE chat_id=? AND message_id=?",
+            (chat_id, msg_id)
+        )
+        if cur.fetchone():
             return
 
+    msg = event.message
+
+    text = msg.text or ""
+    entities = msg.entities
+
+    use_format = bool(entities)
+
     try:
+        if msg.media:
+            await client.send_file(
+                DEST_CHAT,
+                msg.media,
+                caption=text,
+                formatting_entities=entities if use_format else None,
+                silent=True
+            )
+        else:
+            await client.send_message(
+                DEST_CHAT,
+                text,
+                formatting_entities=entities if use_format else None,
+                silent=True
+            )
+    except Exception as e:
+        print(f"Error forwarding message {msg_id} from chat {chat_id}: {e}")
+        return
 
-        # Copy (remove buttons, keep content)
-        await event.message.copy_to(DEST_CHAT)
-
-        await db.execute(
+    async with db_lock:
+        cur.execute(
             "INSERT OR IGNORE INTO processed VALUES (?, ?)",
             (chat_id, msg_id)
         )
-
-        await db.commit()
-
-        async with stats_lock:
-            stats["messages"] += 1
-
-        await save_stats(stats)
-
-        logger.info(f"Forwarded {msg_id}")
-
-    except Exception as e:
-
-        logger.error("Error forwarding", exc_info=True)
+        conn.commit()
+    stats["messages"] += 1
+    save_stats(stats)
 
 
-# ---------- MAIN ----------
+# start
+client.start()
+client.run_until_disconnected()
 
-async def main():
-
-    await init_db()
-
-    stats["status"] = "running"
-    await save_stats(stats)
-
-    logger.info("Bot started")
-
-    await client.start()
-    await client.run_until_disconnected()
-
-    stats["status"] = "stopped"
-    await save_stats(stats)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+stats["status"] = "stopped"
+save_stats(stats)
