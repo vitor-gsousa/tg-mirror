@@ -2,7 +2,7 @@ import os
 import json
 import sqlite3
 from dotenv import load_dotenv
-from telethon import TelegramClient, events, utils
+from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
 load_dotenv("/config/.env")
@@ -76,21 +76,22 @@ async def handler(event):
 
     msg = event.message
 
-    text, entities = utils.get_message_text(msg)
+    text = msg.text or ""
+    entities = msg.entities
 
     try:
         if msg.media:
             await client.send_file(
                 DEST_CHAT,
                 msg.media,
-                caption=text or "",
+                caption=text,
                 formatting_entities=entities,
                 silent=True
             )
         else:
             await client.send_message(
                 DEST_CHAT,
-                text or "",
+                text,
                 formatting_entities=entities,
                 silent=True
             )
