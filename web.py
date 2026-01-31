@@ -83,7 +83,9 @@ def save(
 @app.post("/restart")
 def restart(user=Depends(auth)):
 
-    os.kill(1, signal.SIGTERM)
+    subprocess.Popen([
+        "docker", "restart", "tg-mirror-bot"
+    ])
 
     return RedirectResponse("/", status_code=303)
 
