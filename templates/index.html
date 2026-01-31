@@ -66,7 +66,7 @@ body {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin: 18px 0 22px;
 }
@@ -211,6 +211,25 @@ code {
   border-radius: 6px;
 }
 
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: #334155;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 @media (max-width: 760px) {
   .tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -243,6 +262,7 @@ code {
   <div class="tab active" onclick="openTab('status', this)">Status</div>
     <div class="tab" onclick="openTab('config', this)">Configuration</div>
     <div class="tab" onclick="openTab('logs', this)">Logs</div>
+    <div class="tab" onclick="openTab('stats', this)">Stats</div>
     <div class="tab" onclick="openTab('db', this)">DB</div>
 </div>
 
@@ -303,6 +323,20 @@ code {
 
 </form>
 
+<form method="post" action="/add-source-chat" class="form-grid" style="margin-top:18px">
+  <div>
+    <label>Adicionar Source Chat ID</label>
+    <input name="chat_id" placeholder="-100123456789">
+  </div>
+  <div>
+    <label>Nome do canal (opcional)</label>
+    <input name="name" placeholder="Canal Principal">
+  </div>
+  <div class="full actions">
+    <button>Adicionar canal</button>
+  </div>
+</form>
+
 </div>
 
 <!-- LOGS -->
@@ -317,6 +351,31 @@ code {
 </div>
 
 <p class="hint">Logs em tempo real via interface.</p>
+
+</div>
+
+<!-- STATS -->
+<div id="stats" class="panel">
+  <div style="margin-top:16px">
+    <table>
+      <thead>
+        <tr>
+          <th>Chat ID</th>
+          <th>Nome</th>
+          <th>Mensagens</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in channel_stats %}
+        <tr>
+          <td>{{ row.chat_id }}</td>
+          <td>{{ row.name or "—" }}</td>
+          <td>{{ row.messages }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
 </div>
 
