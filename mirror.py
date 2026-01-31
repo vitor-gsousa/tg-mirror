@@ -2,7 +2,7 @@ import os
 import json
 import sqlite3
 from dotenv import load_dotenv
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, utils
 from telethon.sessions import StringSession
 
 load_dotenv("/config/.env")
@@ -51,6 +51,7 @@ SOURCE_CHATS = [
 DB_PATH = "/data/state.db"
 os.makedirs("/data", exist_ok=True)
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn.execute("PRAGMA journal_mode=WAL;")
 cur = conn.cursor()
 cur.execute("""
 CREATE TABLE IF NOT EXISTS processed (
@@ -75,21 +76,27 @@ async def handler(event):
 
     msg = event.message
 
-    if msg.media:
-        await client.send_file(
-            DEST_CHAT,
-            msg.media,
-            caption=msg.text or "",
-            formatting_entities=msg.entities,
-            silent=True
-        )
-    else:
-        await client.send_message(
-            DEST_CHAT,
-            msg.text or "",
-            formatting_entities=msg.entities,
-            silent=True
-        )
+    text, entities = utils.get_message_text(msg)
+
+    try:
+        if msg.media:
+            await client.send_file(
+                DEST_CHAT,
+                msg.media,
+                caption=text or "",
+                formatting_entities=entities,
+                silent=True
+            )
+        else:
+            await client.send_message(
+                DEST_CHAT,
+                text or "",
+                formatting_entities=entities,
+                silent=True
+            )
+    except Exception as e:
+        print(f"Error forwarding message {msg_id} from chat {chat_id}: {e}")
+        return
 
     cur.execute(
         "INSERT OR IGNORE INTO processed VALUES (?, ?)",
