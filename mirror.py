@@ -205,6 +205,8 @@ async def handler(event):
         print(f"Error forwarding {msg_id}: {e}")
         return
 
+    print(f"[OK] Forwarded {chat_id}:{msg_id}")
+
     # Save processed
     async with db_lock:
         cur.execute(
