@@ -8,6 +8,8 @@ import signal
 import asyncio
 import atexit
 import requests
+import logging
+from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv, dotenv_values
 from telethon import TelegramClient, events
@@ -18,7 +20,7 @@ from fastapi import (
     FastAPI, Request, Form, Depends,
     HTTPException, status
 )
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
@@ -31,6 +33,7 @@ ENV_PATH = "/config/.env"
 DATA_DIR = "/data"
 STATS_PATH = f"{DATA_DIR}/stats.json"
 DB_PATH = f"{DATA_DIR}/state.db"
+LOG_PATH = f"{DATA_DIR}/app.log"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -59,6 +62,31 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 SESSION_NAME = os.environ.get("SESSION", "mirror")
 
 WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
+
+
+# ================= LOGGING =================
+
+logger = logging.getLogger("tg-mirror")
+logger.setLevel(logging.INFO)
+
+_file_handler = RotatingFileHandler(
+    LOG_PATH,
+    maxBytes=2 * 1024 * 1024,
+    backupCount=3,
+    encoding="utf-8"
+)
+_file_handler.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
+)
+
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(
+    logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
+)
+
+logger.addHandler(_file_handler)
+logger.addHandler(_stream_handler)
+logger.propagate = False
 
 
 # ================= LOCKS =================
@@ -90,6 +118,7 @@ def save_stats(data):
 stats = load_stats()
 stats["status"] = "running"
 save_stats(stats)
+logger.info("Service started")
 
 
 # ================= TELEGRAM =================
@@ -165,6 +194,19 @@ def save_env(data: dict):
                 f.write(f"{k}={v}\n")
 
 
+def tail_file(path: str, max_lines: int = 200) -> str:
+
+    if not os.path.exists(path):
+        return "No logs yet."
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            return "".join(lines[-max_lines:])
+    except Exception as e:
+        return f"Failed to read logs: {e}"
+
+
 # ================= TELEGRAM HANDLER =================
 
 @client.on(events.NewMessage(chats=SOURCE_CHATS))
@@ -202,10 +244,10 @@ async def handler(event):
             )
 
     except Exception as e:
-        print(f"Error forwarding {msg_id}: {e}")
+        logger.error("Error forwarding %s: %s", msg_id, e)
         return
 
-    print(f"[OK] Forwarded {chat_id}:{msg_id}")
+    logger.info("[OK] Forwarded %s:%s", chat_id, msg_id)
 
     # Save processed
     async with db_lock:
@@ -242,6 +284,11 @@ def index(request: Request, user=Depends(auth)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/logs", response_class=PlainTextResponse)
+def logs(lines: int = 200, user=Depends(auth)):
+    return tail_file(LOG_PATH, max_lines=min(max(lines, 20), 1000))
 
 
 @app.post("/save")
@@ -281,6 +328,7 @@ def clear_db(user=Depends(auth)):
 
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
+        logger.info("Database cleared")
 
     return RedirectResponse("/", status_code=303)
 
@@ -306,6 +354,7 @@ def shutdown():
 
     stats["status"] = "stopped"
     save_stats(stats)
+    logger.info("Service stopped")
 
     try:
         conn.close()
