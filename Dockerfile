@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY mirror.py web.py /app/
+COPY mirror.py /app/
 COPY templates /app/templates
 
 VOLUME ["/config", "/data"]
