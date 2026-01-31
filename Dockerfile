@@ -16,5 +16,3 @@ COPY templates /app/templates
 VOLUME ["/config", "/data"]
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-
-CMD ["sh", "-c", "python mirror.py & uvicorn web:app --host 0.0.0.0 --port 8000"]
