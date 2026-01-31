@@ -79,20 +79,22 @@ async def handler(event):
     text = msg.text or ""
     entities = msg.entities
 
+    use_format = bool(entities)
+
     try:
         if msg.media:
             await client.send_file(
                 DEST_CHAT,
                 msg.media,
                 caption=text,
-                formatting_entities=entities,
+                formatting_entities=entities if use_format else None,
                 silent=True
             )
         else:
             await client.send_message(
                 DEST_CHAT,
                 text,
-                formatting_entities=entities,
+                formatting_entities=entities if use_format else None,
                 silent=True
             )
     except Exception as e:
