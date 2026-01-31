@@ -1,13 +1,25 @@
+# mirror.py
 import os
 import json
 import sqlite3
+import threading
+import signal
+import uvicorn
+import atexit
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from asyncio import Lock
+from fastapi import FastAPI
 db_lock = Lock()
+stats_lock = Lock()
 
 load_dotenv("/config/.env")
+REQUIRED_VARS = ["API_ID", "API_HASH", "DEST_CHAT", "SOURCE_CHATS"]
+
+for var in REQUIRED_VARS:
+    if not os.getenv(var):
+        raise RuntimeError(f"Missing env var: {var}")
 
 STATS_PATH = "/data/stats.json"
 
@@ -69,6 +81,7 @@ CREATE TABLE IF NOT EXISTS processed (
 """)
 conn.commit()
 
+app = FastAPI()
 @client.on(events.NewMessage(chats=SOURCE_CHATS))
 async def handler(event):
     chat_id = event.chat_id
@@ -115,13 +128,30 @@ async def handler(event):
             (chat_id, msg_id)
         )
         conn.commit()
-    stats["messages"] += 1
-    save_stats(stats)
 
+    async with stats_lock:
+        stats["messages"] += 1
+        save_stats(stats)
+
+@app.post("/internal/restart")
+def internal_restart():
+    os.kill(os.getpid(), signal.SIGTERM)
+    return {"status": "restarting"}
 
 # start
-client.start()
-client.run_until_disconnected()
+def run_bot():
+    client.start()
+    client.run_until_disconnected()
 
-stats["status"] = "stopped"
-save_stats(stats)
+def shutdown():
+    stats["status"] = "stopped"
+    save_stats(stats)
+    conn.close()
+
+atexit.register(shutdown)
+
+if __name__ == "__main__":
+
+    threading.Thread(target=run_bot, daemon=True).start()
+
+    uvicorn.run(app, host="0.0.0.0", port=9000)
