@@ -184,9 +184,7 @@ async def handler(event):
 
     msg = event.message
 
-    text = msg.text or ""
-    entities = msg.entities
-    use_format = bool(entities)
+    text = msg.raw_text or ""
 
     try:
         if msg.media:
@@ -194,14 +192,12 @@ async def handler(event):
                 DEST_CHAT,
                 msg.media,
                 caption=text,
-                formatting_entities=entities if use_format else None,
                 silent=True
             )
         else:
             await client.send_message(
                 DEST_CHAT,
                 text,
-                formatting_entities=entities if use_format else None,
                 silent=True
             )
 
