@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y tini \
+RUN apt-get update && apt-get install -y tini curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -16,3 +16,6 @@ COPY templates /app/templates
 VOLUME ["/config", "/data"]
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "mirror.py"]
+
+HEALTHCHECK CMD curl -f http://localhost:8000/ || exit 1
