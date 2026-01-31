@@ -20,4 +20,5 @@ services:
     volumes:
       - ./config:/config
       - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
     command: ["uvicorn", "web:app", "--host", "0.0.0.0", "--port", "8000"]
