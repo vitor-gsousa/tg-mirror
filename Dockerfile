@@ -18,4 +18,4 @@ VOLUME ["/config", "/data"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python", "mirror.py"]
 
-HEALTHCHECK CMD curl -f http://localhost:8000/ || exit 1
+HEALTHCHECK CMD curl -f http://localhost:8000/health  || exit 1
