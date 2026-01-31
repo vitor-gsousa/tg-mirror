@@ -58,7 +58,7 @@ ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 SESSION_STRING = os.environ.get("SESSION_STRING")
 SESSION_NAME = os.environ.get("SESSION", "mirror")
 
-WEB_PORT = 8000
+WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 
 
 # ================= LOCKS =================
