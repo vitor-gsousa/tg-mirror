@@ -150,6 +150,12 @@ CREATE TABLE IF NOT EXISTS processed (
     PRIMARY KEY (chat_id, message_id)
 )
 """)
+cur.execute("""
+CREATE TABLE IF NOT EXISTS channels (
+    chat_id INTEGER PRIMARY KEY,
+    name TEXT
+)
+""")
 conn.commit()
 
 
@@ -192,6 +198,43 @@ def save_env(data: dict):
         for k, v in data.items():
             if v is not None:
                 f.write(f"{k}={v}\n")
+
+
+def get_channel_stats():
+
+    labels = {}
+    try:
+        rows = conn.execute("SELECT chat_id, name FROM channels").fetchall()
+        labels = {row[0]: (row[1] or "") for row in rows}
+    except Exception:
+        labels = {}
+
+    counts = {}
+    try:
+        rows = conn.execute(
+            "SELECT chat_id, COUNT(*) FROM processed GROUP BY chat_id"
+        ).fetchall()
+        counts = {row[0]: row[1] for row in rows}
+    except Exception:
+        counts = {}
+
+    ordered = []
+    for chat_id in SOURCE_CHATS:
+        ordered.append({
+            "chat_id": chat_id,
+            "name": labels.get(chat_id, ""),
+            "messages": counts.get(chat_id, 0)
+        })
+
+    for chat_id, msg_count in counts.items():
+        if chat_id not in SOURCE_CHATS:
+            ordered.append({
+                "chat_id": chat_id,
+                "name": labels.get(chat_id, ""),
+                "messages": msg_count
+            })
+
+    return ordered
 
 
 def tail_file(path: str, max_lines: int = 200) -> str:
@@ -270,13 +313,15 @@ def index(request: Request, user=Depends(auth)):
 
     cfg = dotenv_values(ENV_PATH)
     stats_data = get_stats()
+    channel_stats = get_channel_stats()
 
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "cfg": cfg,
-            "stats": stats_data
+            "stats": stats_data,
+            "channel_stats": channel_stats
         }
     )
 
@@ -329,6 +374,49 @@ def clear_db(user=Depends(auth)):
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
         logger.info("Database cleared")
+
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/add-source-chat")
+def add_source_chat(
+    chat_id: str = Form(...),
+    name: str = Form(""),
+    user=Depends(auth)
+):
+
+    try:
+        chat_id_int = int(chat_id)
+    except ValueError:
+        return RedirectResponse("/", status_code=303)
+
+    env = dotenv_values(ENV_PATH)
+
+    current = env.get("SOURCE_CHATS", "")
+    parsed = [
+        int(x.strip())
+        for x in current.split(",")
+        if x.strip()
+    ]
+
+    if chat_id_int not in parsed:
+        parsed.append(chat_id_int)
+
+    env["SOURCE_CHATS"] = ",".join(str(x) for x in parsed)
+    env["ADMIN_PASSWORD"] = ADMIN_PASSWORD
+
+    save_env(env)
+
+    conn.execute(
+        "INSERT OR REPLACE INTO channels (chat_id, name) VALUES (?, ?)",
+        (chat_id_int, name.strip())
+    )
+    conn.commit()
+
+    global SOURCE_CHATS
+    SOURCE_CHATS = parsed
+
+    logger.info("Source chat added/updated: %s", chat_id_int)
 
     return RedirectResponse("/", status_code=303)
 
