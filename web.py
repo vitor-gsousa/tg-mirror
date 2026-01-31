@@ -23,7 +23,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 if not ADMIN_PASSWORD:
     raise RuntimeError("ADMIN_PASSWORD not set in .env")
 
-BOT_API = "http://localhost:9000/internal/restart"
+BOT_API = "http://localhost:8000/internal/restart"
 
 
 # ---------- APP ----------
