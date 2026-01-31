@@ -6,64 +6,220 @@
 <meta name="viewport" content="width=device-width">
 
 <style>
+:root {
+  --primary: #1c93e3;
+  --bg: #f6f8fb;
+  --card: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  font-family: system-ui;
-  background: #f4f6f9;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
   margin: 0;
 }
 
 .container {
-  max-width: 900px;
-  margin: auto;
-  padding: 25px;
+  max-width: 78rem;
+  margin: 32px auto 60px;
+  padding: 0 20px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.title-badge {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: rgba(28, 147, 227, 0.12);
+  color: var(--primary);
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.95rem;
 }
 
 .tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 20px;
+  margin: 18px 0 22px;
 }
 
 .tab {
-  padding: 8px 16px;
-  background: #e5e7eb;
-  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  background: #eef2f7;
+  border-radius: 12px;
   cursor: pointer;
+  text-align: center;
+  font-weight: 600;
+  color: #334155;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.tab:hover {
+  border-color: var(--border);
+  transform: translateY(-1px);
 }
 
 .tab.active {
-  background: #2563eb;
+  background: var(--primary);
   color: white;
+  box-shadow: 0 8px 18px rgba(28, 147, 227, 0.25);
 }
 
 .panel {
   display: none;
-  background: white;
-  padding: 25px;
-  border-radius: 12px;
+  background: var(--card);
+  padding: 26px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
 }
 
 .panel.active {
   display: block;
 }
 
-.stat {
-  font-size: 1.1rem;
-  margin: 8px 0;
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
 }
 
-button {
-  padding: 8px 18px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+.stat-card {
+  padding: 18px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+  display: inline-block;
 }
 
 textarea, input {
   width: 100%;
-  padding: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+textarea:focus, input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(28, 147, 227, 0.15);
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+button {
+  padding: 10px 18px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(28, 147, 227, 0.25);
+}
+
+.danger {
+  background: #dc2626;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+pre {
+  background: #0b1220;
+  color: #e2e8f0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  overflow: auto;
+}
+
+code {
+  background: #eef2f7;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+@media (max-width: 760px) {
+  .tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-grid,
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 </head>
@@ -72,28 +228,40 @@ textarea, input {
 
 <div class="container">
 
-<h2>Telegram Mirror</h2>
+<div class="header">
+  <div class="title">
+    <div class="title-badge">✈️</div>
+    <div>
+      <h2>Telegram Mirror</h2>
+      <div class="subtitle">Painel de controlo e configuração</div>
+    </div>
+  </div>
+</div>
 
 <!-- Tabs -->
 <div class="tabs">
-  <div class="tab active" onclick="openTab('status')">Status</div>
-    <div class="tab" onclick="openTab('config')">Configuration</div>
-    <div class="tab" onclick="openTab('logs')">Logs</div>
-    <div class="tab" onclick="openTab('db')">DB</div>
+  <div class="tab active" onclick="openTab('status', this)">Status</div>
+    <div class="tab" onclick="openTab('config', this)">Configuration</div>
+    <div class="tab" onclick="openTab('logs', this)">Logs</div>
+    <div class="tab" onclick="openTab('db', this)">DB</div>
 </div>
 
 <!-- STATUS -->
 <div id="status" class="panel active">
 
-  <div class="stat">
-    🟢 Status: <b>{{ stats.status }}</b>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">🟢 Status</div>
+      <div class="stat-value">{{ stats.status }}</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">📩 Messages</div>
+      <div class="stat-value">{{ stats.messages }}</div>
+    </div>
   </div>
 
-  <div class="stat">
-    📩 Messages: <b>{{ stats.messages }}</b>
-  </div>
-
-  <form method="post" action="/restart">
+  <form method="post" action="/restart" class="actions">
     <button>Restart Bot</button>
   </form>
 
@@ -102,25 +270,36 @@ textarea, input {
 <!-- CONFIG -->
 <div id="config" class="panel">
 
-<form method="post" action="/save">
+<form method="post" action="/save" class="form-grid">
 
-<label>API ID</label>
-<input name="api_id" value="{{ cfg.API_ID }}">
+  <div>
+    <label>API ID</label>
+    <input name="api_id" value="{{ cfg.API_ID }}">
+  </div>
 
-<label>API HASH</label>
-<input name="api_hash" value="{{ cfg.API_HASH }}">
+  <div>
+    <label>API HASH</label>
+    <input name="api_hash" value="{{ cfg.API_HASH }}">
+  </div>
 
-<label>SESSION STRING</label>
-<textarea name="session_string">{{ cfg.SESSION_STRING }}</textarea>
+  <div class="full">
+    <label>SESSION STRING</label>
+    <textarea name="session_string" rows="4">{{ cfg.SESSION_STRING }}</textarea>
+  </div>
 
-<label>DEST CHAT</label>
-<input name="dest_chat" value="{{ cfg.DEST_CHAT }}">
+  <div>
+    <label>DEST CHAT</label>
+    <input name="dest_chat" value="{{ cfg.DEST_CHAT }}">
+  </div>
 
-<label>SOURCE CHATS</label>
-<textarea name="source_chats">{{ cfg.SOURCE_CHATS }}</textarea>
+  <div class="full">
+    <label>SOURCE CHATS</label>
+    <textarea name="source_chats" rows="4">{{ cfg.SOURCE_CHATS }}</textarea>
+  </div>
 
-<br><br>
-<button>Save</button>
+  <div class="full actions">
+    <button>Save</button>
+  </div>
 
 </form>
 
@@ -130,25 +309,24 @@ textarea, input {
 <div id="logs" class="panel">
 
 <pre>
-docker logs tg-mirror
-(see terminal)
+<span id="logs-output">A carregar logs...</span>
 </pre>
 
-<p>
-For now, logs are via terminal:
-<br>
-<code>docker logs -f tg-mirror</code>
-</p>
+<div class="actions">
+  <button type="button" onclick="loadLogs()">Refresh Logs</button>
+</div>
+
+<p class="hint">Logs em tempo real via interface.</p>
 
 </div>
 
 <!-- DB -->
 <div id="db" class="panel">
 
-<p>Delete history (duplicates will be resent)</p>
+<p class="hint">Delete history (duplicates will be resent)</p>
 
-<form method="post" action="/clear-db">
-  <button style="background:#dc2626">Clear Database</button>
+<form method="post" action="/clear-db" class="actions">
+  <button class="danger">Clear Database</button>
 </form>
 
 </div>
@@ -156,7 +334,26 @@ For now, logs are via terminal:
 </div>
 
 <script>
-function openTab(name){
+async function loadLogs(){
+  const output = document.getElementById("logs-output")
+  if (!output) return
+
+  output.textContent = "A carregar logs..."
+
+  try {
+    const res = await fetch("/logs")
+    if (!res.ok) {
+      output.textContent = `Erro ao carregar logs (${res.status})`
+      return
+    }
+    const text = await res.text()
+    output.textContent = text || "Sem logs."
+  } catch (e) {
+    output.textContent = "Erro ao carregar logs"
+  }
+}
+
+function openTab(name, el){
 
   document.querySelectorAll(".tab").forEach(t=>{
     t.classList.remove("active")
@@ -167,7 +364,15 @@ function openTab(name){
   })
 
   document.getElementById(name).classList.add("active")
-  event.target.classList.add("active")
+  if (el) {
+    el.classList.add("active")
+  } else if (event && event.target) {
+    event.target.classList.add("active")
+  }
+
+  if (name === "logs") {
+    loadLogs()
+  }
 }
 </script>
 
