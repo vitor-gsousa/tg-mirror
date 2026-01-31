@@ -5,3 +5,4 @@ uvicorn
 jinja2
 requests
 aiosqlite
+python-multipart
