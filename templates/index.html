@@ -172,6 +172,32 @@ textarea:focus, input:focus {
   margin-top: 18px;
 }
 
+.section {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #0f172a;
+}
+
+.section-subtitle {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 18px 0;
+}
+
 button {
   padding: 10px 18px;
   background: var(--primary);
@@ -290,52 +316,59 @@ th {
 <!-- CONFIG -->
 <div id="config" class="panel">
 
-<form method="post" action="/save" class="form-grid">
+  <div class="section">
+    <div class="section-title">Add source channel</div>
+    <div class="section-subtitle">Registers the name in the database and appends the ID to SOURCE_CHATS.</div>
 
-  <div>
-    <label>API ID</label>
-    <input name="api_id" value="{{ cfg.API_ID }}">
-  </div>
-
-  <div>
-    <label>API HASH</label>
-    <input name="api_hash" value="{{ cfg.API_HASH }}">
-  </div>
-
-  <div class="full">
-    <label>SESSION STRING</label>
-    <textarea name="session_string" rows="4">{{ cfg.SESSION_STRING }}</textarea>
-  </div>
-
-  <div>
-    <label>DEST CHAT</label>
-    <input name="dest_chat" value="{{ cfg.DEST_CHAT }}">
+    <form method="post" action="/add-source-chat" class="form-grid">
+      <div>
+        <label>Add Source Chat ID</label>
+        <input name="chat_id" placeholder="-100123456789">
+      </div>
+      <div>
+        <label>Channel name (optional)</label>
+        <input name="name" placeholder="Main Channel">
+      </div>
+      <div class="full actions">
+        <button>Add channel</button>
+      </div>
+    </form>
   </div>
 
-  <div class="full">
-    <label>SOURCE CHATS</label>
-    <textarea name="source_chats" rows="4">{{ cfg.SOURCE_CHATS }}</textarea>
-  </div>
+  <div class="divider"></div>
 
-  <div class="full actions">
-    <button>Save</button>
-  </div>
+  <form method="post" action="/save" class="form-grid">
 
-</form>
+    <div>
+      <label>API ID</label>
+      <input name="api_id" value="{{ cfg.API_ID }}">
+    </div>
 
-<form method="post" action="/add-source-chat" class="form-grid" style="margin-top:18px">
-  <div>
-    <label>Add Source Chat ID</label>
-    <input name="chat_id" placeholder="-100123456789">
-  </div>
-  <div>
-    <label>Channel name (optional)</label>
-    <input name="name" placeholder="Main Channel">
-  </div>
-  <div class="full actions">
-    <button>Add channel</button>
-  </div>
-</form>
+    <div>
+      <label>API HASH</label>
+      <input name="api_hash" value="{{ cfg.API_HASH }}">
+    </div>
+
+    <div class="full">
+      <label>SESSION STRING</label>
+      <textarea name="session_string" rows="4">{{ cfg.SESSION_STRING }}</textarea>
+    </div>
+
+    <div>
+      <label>DEST CHAT</label>
+      <input name="dest_chat" value="{{ cfg.DEST_CHAT }}">
+    </div>
+
+    <div class="full">
+      <label>SOURCE CHATS</label>
+      <textarea name="source_chats" rows="4">{{ cfg.SOURCE_CHATS }}</textarea>
+    </div>
+
+    <div class="full actions">
+      <button>Save</button>
+    </div>
+
+  </form>
 
 </div>
 
