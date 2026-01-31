@@ -1,19 +1,32 @@
+# web.py
 import os
 import json
-import subprocess
 import signal
-from fastapi import FastAPI, Request, Form, Depends
+import requests
+
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi import HTTPException, status
+
 from dotenv import dotenv_values, load_dotenv
 
-load_dotenv("/config/.env")
+# ---------- CONFIG ----------
 
 ENV_PATH = "/config/.env"
 STATS_PATH = "/data/stats.json"
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+load_dotenv(ENV_PATH)
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+if not ADMIN_PASSWORD:
+    raise RuntimeError("ADMIN_PASSWORD not set in .env")
+
+BOT_API = "http://localhost:9000/internal/restart"
+
+
+# ---------- APP ----------
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -31,14 +44,27 @@ def auth(credentials: HTTPBasicCredentials = Depends(security)):
             headers={"WWW-Authenticate": "Basic"},
         )
 
+
 # ---------- HELPERS ----------
 
 def get_stats():
+
     if not os.path.exists(STATS_PATH):
         return {"messages": 0, "status": "unknown"}
 
     with open(STATS_PATH) as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except:
+            return {"messages": 0, "status": "error"}
+
+
+def save_env(data: dict):
+
+    with open(ENV_PATH, "w") as f:
+        for k, v in data.items():
+            if v is not None:
+                f.write(f"{k}={v}\n")
 
 
 # ---------- ROUTES ----------
@@ -63,19 +89,22 @@ def index(request: Request, user=Depends(auth)):
 def save(
     api_id: str = Form(...),
     api_hash: str = Form(...),
-    session_string: str = Form(...),
+    session_string: str = Form(""),
     dest_chat: str = Form(...),
     source_chats: str = Form(...),
     user=Depends(auth)
 ):
 
-    with open(ENV_PATH, "w") as f:
-        f.write(f"API_ID={api_id}\n")
-        f.write(f"API_HASH={api_hash}\n")
-        f.write(f"SESSION_STRING={session_string}\n")
-        f.write(f"DEST_CHAT={dest_chat}\n")
-        f.write(f"SOURCE_CHATS={source_chats}\n")
-        f.write(f"ADMIN_PASSWORD={ADMIN_PASSWORD}\n")
+    env = dotenv_values(ENV_PATH)
+
+    env["API_ID"] = api_id
+    env["API_HASH"] = api_hash
+    env["SESSION_STRING"] = session_string
+    env["DEST_CHAT"] = dest_chat
+    env["SOURCE_CHATS"] = source_chats
+    env["ADMIN_PASSWORD"] = ADMIN_PASSWORD
+
+    save_env(env)
 
     return RedirectResponse("/", status_code=303)
 
@@ -83,9 +112,13 @@ def save(
 @app.post("/restart")
 def restart(user=Depends(auth)):
 
-    subprocess.Popen([
-        "docker", "restart", "tg-mirror-bot"
-    ])
+    try:
+        requests.post(BOT_API, timeout=3)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to restart bot: {e}"
+        )
 
     return RedirectResponse("/", status_code=303)
 
@@ -94,6 +127,7 @@ def restart(user=Depends(auth)):
 def clear_db(user=Depends(auth)):
 
     db = "/data/state.db"
+
     if os.path.exists(db):
         os.remove(db)
 
