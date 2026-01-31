@@ -1,6 +1,7 @@
 import os
 import json
 import subprocess
+import signal
 from fastapi import FastAPI, Request, Form, Depends
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -82,7 +83,7 @@ def save(
 @app.post("/restart")
 def restart(user=Depends(auth)):
 
-    subprocess.Popen(["docker", "compose", "restart"])
+    os.kill(1, signal.SIGTERM)
 
     return RedirectResponse("/", status_code=303)
 
