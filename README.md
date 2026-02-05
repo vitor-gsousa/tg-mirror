@@ -31,6 +31,32 @@ cd tg-mirror
    * `SESSION_STRING`: The account session string (Pyrogram/Telethon).
    * `DEST_CHAT`: Destination chat ID where messages will be sent.
    * `SOURCE_CHATS`: IDs of source chats to be monitored.
+   * `CLEANUP_DAYS`: Number of days to retain processed messages (optional, default: 30).
+   * `CLEANUP_TIME`: Time of day to run cleanup in HH:MM format (optional, default: 00:05).
+
+3. You can configure the cleanup via: **Web interface** (recommended):
+   * Log in to the control panel at `http://IP_ADDRESS:8000`
+   * Go to the **DB** tab
+   * Set **Retention (days)** to your desired value (e.g., 30 days)
+   * Click **Save cleanup**
+
+4. Or **Environment file** (`.env`):
+
+   ```env
+   CLEANUP_DAYS=30           # Retention period in days
+   CLEANUP_TIME=00:05        # Daily run time (HH:MM format, UTC)
+   ```
+
+## Database Cleanup
+
+The service automatically removes processed message records older than a configurable retention period. This runs daily at a scheduled time (default 00:05 UTC).
+
+### Notes
+
+* Old records are purged automatically every day at the configured time.
+* Set `CLEANUP_DAYS` to `0` to disable automatic cleanup.
+* Duplicate prevention still works after cleanup (each message ID is checked before processing).
+* The **Clear Database** button allows manual deletion of all history.
 
 ## Installation and Running
 
