@@ -415,6 +415,23 @@ th {
 <!-- DB -->
 <div id="db" class="panel">
 
+<div class="section">
+  <div class="section-title">Automatic cleanup</div>
+  <div class="section-subtitle">Runs daily at 00:05. Removes rows older than X days.</div>
+
+  <form method="post" action="/save-db" class="form-grid">
+    <div>
+      <label>Retention (days)</label>
+      <input name="cleanup_days" value="{{ cfg.CLEANUP_DAYS or '' }}" placeholder="30">
+    </div>
+    <div class="full actions">
+      <button>Save cleanup</button>
+    </div>
+  </form>
+</div>
+
+<div class="divider"></div>
+
 <p class="hint">Delete history (duplicates will be resent)</p>
 
 <form method="post" action="/clear-db" class="actions">
