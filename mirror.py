@@ -355,7 +355,26 @@ def apply_filters(text: str) -> str:
 
     for _, pattern, replacement in get_filters():
         try:
-            text = re.sub(pattern, replacement, text)
+            if replacement == "amz":
+                urls = set(re.findall(pattern, text))
+                if urls:
+                    headers = {"User-Agent": "Mozilla/5.0 (compatible; tg-mirror/1.0)"}
+                    with requests.Session() as session:
+                        for url in urls:
+                            try:
+                                resp = session.head(url, allow_redirects=True, timeout=5, headers=headers)
+                                final_url = resp.url
+                                if "?" in final_url:
+                                    final_url = final_url.split("?")[0]
+                                text = text.replace(url, final_url)
+                                logger.info("Expanded %s -> %s", url, final_url)
+                            except Exception as e:
+                                logger.error("Failed to expand %s: %s", url, e)
+            else:
+                old_text = text
+                text = re.sub(pattern, replacement, text)
+                if old_text != text:
+                    logger.info("Filter matched: '%s'", pattern)
         except Exception as e:
             logger.error("Regex error '%s': %s", pattern, e)
     return text
