@@ -23,7 +23,7 @@ from asyncio import Lock
 from fastapi import (
     FastAPI, Request, Form, Depends, HTTPException, status
 )
-from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -647,6 +647,53 @@ def clear_db(_ = Depends(require_page_login)):
         logger.info("Database cleared")
 
     return RedirectResponse("/#db", status_code=303)
+
+
+@app.post("/execute-query")
+async def execute_query(
+    request: Request,
+    _ = Depends(require_page_login)
+):
+
+    try:
+        body = await request.json()
+        query = body.get("query", "").strip()
+
+        if not query:
+            return JSONResponse(
+                {"error": "Query cannot be empty"},
+                status_code=400
+            )
+
+        # Security: only allow SELECT queries
+        if not query.upper().startswith("SELECT"):
+            return JSONResponse(
+                {"error": "Only SELECT queries are allowed for safety"},
+                status_code=403
+            )
+
+        with db_mutex:
+            cursor = conn.execute(query)
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+
+        return JSONResponse({
+            "columns": columns,
+            "rows": rows
+        })
+
+    except sqlite3.Error as e:
+        logger.error("SQL error: %s", e)
+        return JSONResponse(
+            {"error": f"SQL Error: {str(e)}"},
+            status_code=400
+        )
+    except Exception as e:
+        logger.error("Query execution error: %s", e)
+        return JSONResponse(
+            {"error": f"Error: {str(e)}"},
+            status_code=500
+        )
 
 
 @app.post("/add-source-chat")
