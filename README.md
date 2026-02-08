@@ -33,6 +33,7 @@ cd tg-mirror
    * `SOURCE_CHATS`: IDs of source chats to be monitored.
    * `CLEANUP_DAYS`: Number of days to retain processed messages (optional, default: 30).
    * `CLEANUP_TIME`: Time of day to run cleanup in HH:MM format (optional, default: 00:05).
+   * `DUP_CODE_REGEX`: Regex to detect alphanumeric codes used for de-duplication (optional, default: `\b[A-Za-z0-9]{6,}\b`).
 
 3. You can configure the cleanup via: **Web interface** (recommended):
    * Log in to the control panel at `http://IP_ADDRESS:8000`
@@ -57,6 +58,7 @@ The service automatically removes processed message records older than a configu
 * Set `CLEANUP_DAYS` to `0` to disable automatic cleanup.
 * Duplicate prevention still works after cleanup (each message ID is checked before processing).
 * The **Clear Database** button allows manual deletion of all history.
+* Code de-duplication cache is cleared daily at the configured time.
 
 ## Installation and Running
 
