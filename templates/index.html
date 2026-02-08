@@ -558,6 +558,25 @@ th {
 
 <div class="divider"></div>
 
+<div class="section">
+  <div class="section-title">SQL Query</div>
+  <div class="section-subtitle">Execute custom SQL queries (SELECT only for safety).</div>
+
+  <div class="form-grid">
+    <div class="full">
+      <label>SQL Query</label>
+      <textarea id="sql-query" rows="3" placeholder="SELECT * FROM processed LIMIT 10" style="font-family: 'Courier New', monospace; font-size: 0.9rem;"></textarea>
+    </div>
+    <div class="full actions">
+      <button onclick="executeQuery()">Execute Query</button>
+    </div>
+  </div>
+
+  <div id="query-result" style="margin-top: 16px;"></div>
+</div>
+
+<div class="divider"></div>
+
 <p class="hint">Delete history (duplicates will be resent)</p>
 
 <form method="post" action="/clear-db" class="actions">
@@ -680,6 +699,72 @@ window.addEventListener('hashchange', function() {
     openTab(hash, tabElement)
   }
 })
+
+async function executeQuery() {
+  const queryInput = document.getElementById("sql-query")
+  const resultDiv = document.getElementById("query-result")
+  const query = queryInput.value.trim()
+
+  if (!query) {
+    resultDiv.innerHTML = '<p style="color: var(--muted);">Please enter a SQL query.</p>'
+    return
+  }
+
+  resultDiv.innerHTML = '<p style="color: var(--muted);">🔄 Executing query...</p>'
+
+  try {
+    const res = await fetch("/execute-query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: query })
+    })
+
+    if (res.status === 401) {
+      resultDiv.innerHTML = '<p style="color: red;">Session expired. Redirecting to login...</p>'
+      window.location.href = "/login"
+      return
+    }
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      resultDiv.innerHTML = `<p style="color: red;">❌ Error: ${data.error || 'Unknown error'}</p>`
+      return
+    }
+
+    if (!data.rows || data.rows.length === 0) {
+      resultDiv.innerHTML = '<p style="color: var(--muted);">✓ Query executed successfully. No rows returned.</p>'
+      return
+    }
+
+    // Build table
+    let html = '<div style="overflow-x: auto; margin-top: 8px;"><table><thead><tr>'
+    
+    // Headers
+    data.columns.forEach(col => {
+      html += `<th>${col}</th>`
+    })
+    html += '</tr></thead><tbody>'
+
+    // Rows
+    data.rows.forEach(row => {
+      html += '<tr>'
+      row.forEach(cell => {
+        const displayValue = cell === null ? '<span style="color: var(--muted); font-style: italic;">NULL</span>' : String(cell)
+        html += `<td>${displayValue}</td>`
+      })
+      html += '</tr>'
+    })
+
+    html += '</tbody></table></div>'
+    html += `<p style="color: var(--muted); margin-top: 8px; font-size: 0.85rem;">${data.rows.length} row(s) returned</p>`
+
+    resultDiv.innerHTML = html
+
+  } catch (e) {
+    resultDiv.innerHTML = `<p style="color: red;">❌ Failed to execute query: ${e.message}</p>`
+  }
+}
 </script>
 
 </body>
