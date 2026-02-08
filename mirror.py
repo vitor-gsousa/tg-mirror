@@ -358,7 +358,7 @@ def apply_filters(text: str) -> str:
             if replacement == "amz":
                 urls = set(re.findall(pattern, text))
                 if urls:
-                    headers = {"User-Agent": "Mozilla/5.0 (compatible; tg-mirror/1.0)"}
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
                     with requests.Session() as session:
                         for url in urls:
                             try:
