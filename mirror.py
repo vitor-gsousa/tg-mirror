@@ -364,7 +364,9 @@ def apply_filters(text: str) -> str:
                             try:
                                 resp = session.head(url, allow_redirects=True, timeout=5, headers=headers)
                                 final_url = resp.url
-                                if "?" in final_url:
+                                # Só limpa parâmetros se for link de produto (/dp/ ou /gp/)
+                                # Para convites Prime ou outras páginas, mantém os parâmetros originais
+                                if ("/dp/" in final_url or "/gp/" in final_url) and "?" in final_url:
                                     final_url = final_url.split("?")[0]
                                 text = text.replace(url, final_url)
                                 logger.info("Expanded %s -> %s", url, final_url)
