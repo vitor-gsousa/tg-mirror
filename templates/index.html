@@ -401,6 +401,27 @@ th {
 <div id="filters" class="panel">
 
   <div class="section">
+    <div class="section-title">Duplicate Detection</div>
+    <div class="section-subtitle">Configure the regex pattern used to extract codes for duplicate detection. Use pipe (|) to combine multiple patterns.</div>
+
+    <form method="post" action="/save-dup-config" class="form-grid">
+      <div class="full">
+        <label>DUP_CODE_REGEX</label>
+        <input name="dup_code_regex" value="{{ cfg.DUP_CODE_REGEX or '' }}" placeholder="(?:/dp/|/gp/product/)([A-Z0-9]{10})|\b[A-Z0-9]{8,}\b">
+        <small style="color: var(--muted); display: block; margin-top: 4px;">
+          Examples: <code>(?:/dp/|/gp/product/)([A-Z0-9]{10})</code> for Amazon ASIN, or <code>\b[A-Z0-9]{8,}\b</code> for alphanumeric codes
+        </small>
+      </div>
+
+      <div class="full actions">
+        <button>Save Duplicate Config</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
     <div class="section-title">URL Filters (Regex)</div>
     <div class="section-subtitle">Automatically replace patterns in message text.</div>
 
