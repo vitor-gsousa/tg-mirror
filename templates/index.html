@@ -452,9 +452,11 @@ th {
               <td><code>{{ pattern }}</code></td>
               <td>{{ replacement or "—" }}</td>
               <td>
-                <form action="/delete-filter" method="post" style="display: inline;">
+                <button type="button" data-id="{{ id }}" data-pattern="{{ pattern }}" data-replacement="{{ replacement or '' }}" onclick="editFilter(this.dataset.id, this.dataset.pattern, this.dataset.replacement)" title="Editar" style="padding: 6px 10px; font-size: 1.1rem; background: transparent; border: 1px solid var(--border); color: var(--text); box-shadow: none; margin-right: 4px;">📝</button>
+
+                <form action="/delete-filter" method="post" style="display: inline;" onsubmit="return confirm('Tem a certeza que deseja apagar este filtro?');">
                   <input type="hidden" name="filter_id" value="{{ id }}">
-                  <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.85rem;">Delete</button>
+                  <button type="submit" title="Apagar" style="padding: 6px 10px; font-size: 1.1rem; background: transparent; border: 1px solid var(--border); color: var(--text); box-shadow: none;">🗑️</button>
                 </form>
               </td>
             </tr>
@@ -472,21 +474,24 @@ th {
   <div class="divider"></div>
 
   <div class="section">
-    <div class="section-title">Add new filter</div>
+    <div class="section-title" id="filter_section_title">Add new filter</div>
 
-    <form method="post" action="/add-filter" class="form-grid">
+    <form method="post" action="/add-filter" class="form-grid" id="filter_form">
+      <input type="hidden" name="filter_id" id="filter_id">
+      
       <div class="full">
         <label>Pattern (Regex)</label>
-        <input name="pattern" placeholder="e.g., https://old\.domain\.com" required>
+        <input name="pattern" id="filter_pattern" placeholder="e.g., https://old\.domain\.com" required>
       </div>
 
       <div class="full">
         <label>Replacement (optional)</label>
-        <input name="replacement" placeholder="e.g., https://new.domain.com">
+        <input name="replacement" id="filter_replacement" placeholder="e.g., https://new.domain.com">
       </div>
 
       <div class="full actions">
-        <button>Add Filter</button>
+        <button id="filter_submit_btn">Add Filter</button>
+        <button type="button" id="filter_cancel_btn" onclick="cancelEdit()" style="display:none; background: #64748b;">Cancel</button>
       </div>
     </form>
   </div>
@@ -764,6 +769,34 @@ async function executeQuery() {
   } catch (e) {
     resultDiv.innerHTML = `<p style="color: red;">❌ Failed to execute query: ${e.message}</p>`
   }
+}
+
+function editFilter(id, pattern, replacement) {
+  document.getElementById('filter_id').value = id;
+  document.getElementById('filter_pattern').value = pattern;
+  document.getElementById('filter_replacement').value = replacement;
+  
+  const form = document.getElementById('filter_form');
+  form.action = "/update-filter";
+  
+  document.getElementById('filter_submit_btn').textContent = "Save Changes";
+  document.getElementById('filter_cancel_btn').style.display = "inline-block";
+  document.getElementById('filter_section_title').textContent = "Edit Filter #" + id;
+  
+  form.scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  document.getElementById('filter_id').value = "";
+  document.getElementById('filter_pattern').value = "";
+  document.getElementById('filter_replacement').value = "";
+  
+  const form = document.getElementById('filter_form');
+  form.action = "/add-filter";
+  
+  document.getElementById('filter_submit_btn').textContent = "Add Filter";
+  document.getElementById('filter_cancel_btn').style.display = "none";
+  document.getElementById('filter_section_title').textContent = "Add new filter";
 }
 </script>
 
