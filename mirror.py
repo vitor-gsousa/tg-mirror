@@ -604,6 +604,33 @@ def save_db(
     return RedirectResponse("/#db", status_code=303)
 
 
+@app.post("/save-dup-config")
+def save_dup_config(
+    _ = Depends(require_page_login),
+    dup_code_regex: str = Form("")
+):
+
+    env = dotenv_values(ENV_PATH)
+
+    if dup_code_regex.strip():
+        # Validate regex before saving
+        try:
+            re.compile(dup_code_regex.strip())
+            env["DUP_CODE_REGEX"] = dup_code_regex.strip()
+        except re.error:
+            # If invalid regex, don't save and redirect back
+            logger.warning("Invalid regex pattern provided: %s", dup_code_regex)
+            return RedirectResponse("/#filters", status_code=303)
+    else:
+        env.pop("DUP_CODE_REGEX", None)
+
+    env["ADMIN_PASSWORD"] = ADMIN_PASSWORD
+
+    save_env(env)
+
+    return RedirectResponse("/#filters", status_code=303)
+
+
 @app.post("/restart")
 def restart(_ = Depends(require_page_login)):
 
