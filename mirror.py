@@ -364,8 +364,8 @@ def apply_filters(text: str) -> str:
                             try:
                                 resp = session.head(url, allow_redirects=True, timeout=5, headers=headers)
                                 final_url = resp.url
-                                # Só limpa parâmetros se for link de produto (/dp/ ou /gp/)
-                                # Para convites Prime ou outras páginas, mantém os parâmetros originais
+                                # Only clean parameters if it is a product link (/dp/ or /gp/)
+                                # For Prime invites or other pages, keep original parameters
                                 if ("/dp/" in final_url or "/gp/" in final_url) and "?" in final_url:
                                     final_url = final_url.split("?")[0]
                                 text = text.replace(url, final_url)
@@ -454,8 +454,8 @@ def extract_codes(text: str) -> list[str]:
 
     codes = []
     for match in CODE_PATTERN.finditer(text):
-        # Use grupo de captura se existir (ex: (?:/dp/)([A-Z0-9]{10}) captura só o código)
-        # Senão usa o match completo
+        # Use capture group if exists (e.g. (?:/dp/)([A-Z0-9]{10}) captures only the code)
+        # Otherwise use full match
         if match.lastindex and match.lastindex > 0:
             codes.append(normalize_code(match.group(1)))
         else:
