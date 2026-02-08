@@ -48,6 +48,12 @@ body {
   gap: 12px;
 }
 
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 .title-badge {
   width: 40px;
   height: 40px;
@@ -218,6 +224,19 @@ button:hover {
   background: #dc2626;
 }
 
+.order-btn {
+  padding: 4px 8px !important;
+  font-size: 1rem !important;
+  background: #64748b !important;
+  min-width: 30px;
+  margin: 0 2px;
+}
+
+.order-btn:hover {
+  background: #475569 !important;
+  box-shadow: 0 4px 10px rgba(100, 116, 139, 0.3) !important;
+}
+
 .hint {
   color: var(--muted);
   font-size: 0.95rem;
@@ -281,12 +300,18 @@ th {
       <div class="subtitle">Control and configuration panel</div>
     </div>
   </div>
+  <div class="header-actions">
+    <form method="post" action="/logout">
+      <button type="submit" class="danger" style="padding: 8px 14px; font-size: 0.9rem;">Logout</button>
+    </form>
+  </div>
 </div>
 
 <!-- Tabs -->
 <div class="tabs">
   <div class="tab active" onclick="openTab('status', this)">Status</div>
     <div class="tab" onclick="openTab('config', this)">Configuration</div>
+    <div class="tab" onclick="openTab('filters', this)">Filters</div>
     <div class="tab" onclick="openTab('logs', this)">Logs</div>
     <div class="tab" onclick="openTab('stats', this)">Stats</div>
     <div class="tab" onclick="openTab('db', this)">DB</div>
@@ -372,8 +397,88 @@ th {
 
 </div>
 
+<!-- FILTERS -->
+<div id="filters" class="panel">
+
+  <div class="section">
+    <div class="section-title">URL Filters (Regex)</div>
+    <div class="section-subtitle">Automatically replace patterns in message text.</div>
+
+    <div style="margin-top: 16px; overflow-x: auto;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 60px;">Order</th>
+            <th>Pattern (Regex)</th>
+            <th>Replacement</th>
+            <th style="width: 150px;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if filters %}
+            {% for id, pattern, replacement in filters %}
+            <tr>
+              <td style="text-align: center;">
+                <form action="/move-filter-up" method="post" style="display: inline;">
+                  <input type="hidden" name="filter_id" value="{{ id }}">
+                  <button type="submit" class="order-btn" title="Move up">↑</button>
+                </form>
+                <form action="/move-filter-down" method="post" style="display: inline;">
+                  <input type="hidden" name="filter_id" value="{{ id }}">
+                  <button type="submit" class="order-btn" title="Move down">↓</button>
+                </form>
+              </td>
+              <td><code>{{ pattern }}</code></td>
+              <td>{{ replacement or "—" }}</td>
+              <td>
+                <form action="/delete-filter" method="post" style="display: inline;">
+                  <input type="hidden" name="filter_id" value="{{ id }}">
+                  <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.85rem;">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="4" style="text-align: center; color: var(--muted);">No filters configured</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-title">Add new filter</div>
+
+    <form method="post" action="/add-filter" class="form-grid">
+      <div class="full">
+        <label>Pattern (Regex)</label>
+        <input name="pattern" placeholder="e.g., https://old\.domain\.com" required>
+      </div>
+
+      <div class="full">
+        <label>Replacement (optional)</label>
+        <input name="replacement" placeholder="e.g., https://new.domain.com">
+      </div>
+
+      <div class="full actions">
+        <button>Add Filter</button>
+      </div>
+    </form>
+  </div>
+
+</div>
+
 <!-- LOGS -->
 <div id="logs" class="panel">
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+  <div class="hint">Auto-refresh every 5 seconds</div>
+  <div id="logs-status" style="color: var(--muted); font-size: 0.85rem;"></div>
+</div>
 
 <pre>
 <span id="logs-output">Loading logs...</span>
@@ -444,23 +549,55 @@ th {
 
 <script>
 let logsIntervalId = null
+let isLoadingLogs = false
 
 async function loadLogs(){
   const output = document.getElementById("logs-output")
+  const status = document.getElementById("logs-status")
   if (!output) return
+  
+  // Prevent concurrent requests
+  if (isLoadingLogs) return
+  isLoadingLogs = true
 
-  output.textContent = "Loading logs..."
+  // Show subtle loading indicator
+  if (status) status.textContent = "🔄 Updating..."
 
   try {
     const res = await fetch("/logs")
+    if (res.status === 401) {
+      output.textContent = "Sessão expirada. A redirecionar para o login..."
+      window.location.href = "/login"
+      return
+    }
     if (!res.ok) {
       output.textContent = `Failed to load logs (${res.status})`
+      if (status) status.textContent = ""
+      isLoadingLogs = false
       return
     }
     const text = await res.text()
+    
+    // Update content without disrupting scroll position unless at bottom
+    const pre = output.parentElement
+    const wasAtBottom = pre.scrollHeight - pre.scrollTop <= pre.clientHeight + 50
+    
     output.textContent = text || "No logs."
+    
+    // Auto-scroll to bottom only if user was already at bottom
+    if (wasAtBottom) {
+      pre.scrollTop = pre.scrollHeight
+    }
+    
+    if (status) {
+      const now = new Date().toLocaleTimeString()
+      status.textContent = `✓ Last update: ${now}`
+    }
   } catch (e) {
     output.textContent = "Failed to load logs"
+    if (status) status.textContent = ""
+  } finally {
+    isLoadingLogs = false
   }
 }
 
@@ -474,11 +611,20 @@ function openTab(name, el){
     p.classList.remove("active")
   })
 
-  document.getElementById(name).classList.add("active")
+  const panel = document.getElementById(name)
+  if (panel) {
+    panel.classList.add("active")
+  }
+
   if (el) {
     el.classList.add("active")
   } else if (event && event.target) {
     event.target.classList.add("active")
+  }
+
+  // Update URL hash for bookmarking and back/forward navigation
+  if (window.location.hash !== '#' + name) {
+    window.location.hash = name
   }
 
   if (name === "logs") {
@@ -491,6 +637,28 @@ function openTab(name, el){
     logsIntervalId = null
   }
 }
+
+// Restore active tab from URL hash on page load
+window.addEventListener('DOMContentLoaded', function() {
+  const hash = window.location.hash.slice(1)
+  const validTabs = ['status', 'config', 'filters', 'logs', 'stats', 'db']
+
+  if (hash && validTabs.includes(hash)) {
+    const tabElement = document.querySelector(`.tab[onclick*="'${hash}'"]`)
+    openTab(hash, tabElement)
+  }
+})
+
+// Handle browser back/forward buttons
+window.addEventListener('hashchange', function() {
+  const hash = window.location.hash.slice(1)
+  const validTabs = ['status', 'config', 'filters', 'logs', 'stats', 'db']
+
+  if (hash && validTabs.includes(hash)) {
+    const tabElement = document.querySelector(`.tab[onclick*="'${hash}'"]`)
+    openTab(hash, tabElement)
+  }
+})
 </script>
 
 </body>
