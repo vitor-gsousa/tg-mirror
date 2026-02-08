@@ -14,6 +14,7 @@ import requests
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from dotenv import load_dotenv, dotenv_values
 from telethon import TelegramClient, events
@@ -112,7 +113,12 @@ stats_lock = Lock()
 
 # ================= STATS =================
 
-def load_stats():
+def load_stats() -> dict[str, Any]:
+    """
+    Loads application statistics from the JSON file.
+
+    :return: A dictionary containing statistics or default values.
+    """
     if not os.path.exists(STATS_PATH):
         return {"messages": 0, "status": "starting"}
 
@@ -123,7 +129,12 @@ def load_stats():
         return {"messages": 0, "status": "reset"}
 
 
-def save_stats(data):
+def save_stats(data: dict[str, Any]):
+    """
+    Saves application statistics to the JSON file safely.
+
+    :param data: The statistics dictionary to save.
+    """
     with open(STATS_PATH, "w") as f:
         json.dump(data, f)
         f.flush()
@@ -165,6 +176,10 @@ def utc_now_string() -> str:
 
 
 def init_db():
+    """
+    Initializes the database tables and migrates schema if necessary.
+    Creates tables for processed messages, channels, codes, and filters.
+    """
 
     with db_mutex:
         cur.execute("""
@@ -283,7 +298,12 @@ def require_api_login(request: Request):
 
 # ================= HELPERS =================
 
-def get_stats():
+def get_stats() -> dict[str, Any]:
+    """
+    Retrieves current statistics safely.
+
+    :return: A dictionary with current stats or error status.
+    """
 
     if not os.path.exists(STATS_PATH):
         return {"messages": 0, "status": "unknown"}
@@ -295,7 +315,12 @@ def get_stats():
         return {"messages": 0, "status": "error"}
 
 
-def save_env(data: dict):
+def save_env(data: dict[str, Any]):
+    """
+    Writes configuration key-value pairs to the .env file.
+
+    :param data: Dictionary containing environment variables to save.
+    """
 
     with open(ENV_PATH, "w") as f:
         for k, v in data.items():
@@ -303,7 +328,12 @@ def save_env(data: dict):
                 f.write(f"{k}={v}\n")
 
 
-def get_channel_stats():
+def get_channel_stats() -> list[dict[str, Any]]:
+    """
+    Aggregates message counts per channel from the database.
+
+    :return: A list of dictionaries containing chat_id, name, and message count.
+    """
 
     labels = {}
     try:
@@ -342,36 +372,62 @@ def get_channel_stats():
     return ordered
 
 
-def get_filters():
+def get_filters() -> list[tuple[Any, ...]]:
     with db_mutex:
         return conn.execute(
             "SELECT id, pattern, replacement FROM url_filters ORDER BY sort_order, id"
         ).fetchall()
 
+def _expand_url(session: requests.Session, url: str) -> str:
+    """
+    Helper to expand a single URL and clean Amazon parameters.
+
+    :param session: The active requests Session.
+    :param url: The URL to be expanded.
+    :return: The final URL after following redirects and cleaning parameters.
+    """
+    try:
+        resp = session.get(url, allow_redirects=True, timeout=10, stream=True)
+        final_url = resp.url
+        resp.close()
+        
+        # Only clean parameters if it is a product link (/dp/ or /gp/)
+        if ("/dp/" in final_url or "/gp/" in final_url) and "?" in final_url:
+            final_url = final_url.split("?")[0]
+            
+        return final_url
+    except Exception as e:
+        logger.error("Failed to expand %s: %s", url, e)
+        return url
 
 def apply_filters(text: str) -> str:
+    """
+    Applies URL expansion and regex replacements to the message text.
+
+    :param text: The input message text.
+    :return: The processed text with expanded URLs and applied filters.
+    """
     if not text:
         return text
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
     for _, pattern, replacement in get_filters():
         try:
             if replacement == "amz":
                 urls = set(re.findall(pattern, text))
-                if urls:
-                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-                    with requests.Session() as session:
-                        for url in urls:
-                            try:
-                                resp = session.head(url, allow_redirects=True, timeout=5, headers=headers)
-                                final_url = resp.url
-                                # Only clean parameters if it is a product link (/dp/ or /gp/)
-                                # For Prime invites or other pages, keep original parameters
-                                if ("/dp/" in final_url or "/gp/" in final_url) and "?" in final_url:
-                                    final_url = final_url.split("?")[0]
-                                text = text.replace(url, final_url)
-                                logger.info("Expanded %s -> %s", url, final_url)
-                            except Exception as e:
-                                logger.error("Failed to expand %s: %s", url, e)
+                if not urls:
+                    continue
+
+                with requests.Session() as session:
+                    session.headers.update(headers)
+                    for url in urls:
+                        final_url = _expand_url(session, url)
+                        if final_url != url:
+                            text = text.replace(url, final_url)
+                            logger.info("Expanded %s -> %s", url, final_url)
             else:
                 old_text = text
                 text = re.sub(pattern, replacement, text)
@@ -383,6 +439,13 @@ def apply_filters(text: str) -> str:
 
 
 def tail_file(path: str, max_lines: int = 200) -> str:
+    """
+    Reads the last N lines of a file.
+
+    :param path: Path to the file.
+    :param max_lines: Maximum number of lines to read from the end.
+    :return: The content of the last lines as a string.
+    """
 
     if not os.path.exists(path):
         return "No logs yet."
@@ -398,6 +461,13 @@ def tail_file(path: str, max_lines: int = 200) -> str:
 # ================= TELEGRAM HANDLER =================
 
 def is_processed(chat_id: int, msg_id: int) -> bool:
+    """
+    Checks if a message has already been processed to prevent duplicates.
+
+    :param chat_id: The source chat ID.
+    :param msg_id: The message ID.
+    :return: True if processed, False otherwise.
+    """
 
     with db_mutex:
         cur.execute(
@@ -408,6 +478,12 @@ def is_processed(chat_id: int, msg_id: int) -> bool:
 
 
 def mark_processed(chat_id: int, msg_id: int):
+    """
+    Marks a message as processed in the database.
+
+    :param chat_id: The source chat ID.
+    :param msg_id: The message ID.
+    """
 
     with db_mutex:
         cur.execute(
@@ -418,6 +494,12 @@ def mark_processed(chat_id: int, msg_id: int):
 
 
 def cleanup_processed(days: int) -> int:
+    """
+    Removes processed message records older than the specified number of days.
+
+    :param days: Retention period in days.
+    :return: Number of rows deleted.
+    """
 
     if days <= 0:
         return 0
@@ -436,6 +518,11 @@ def cleanup_processed(days: int) -> int:
 
 
 def cleanup_code_cache() -> int:
+    """
+    Clears the cache of deduplication codes.
+
+    :return: Number of rows deleted.
+    """
 
     with db_mutex:
         cur.execute("DELETE FROM message_codes")
@@ -448,6 +535,12 @@ def normalize_code(code: str) -> str:
 
 
 def extract_codes(text: str) -> list[str]:
+    """
+    Extracts codes from text using the configured regex pattern.
+
+    :param text: The text to search.
+    :return: A list of unique codes found.
+    """
 
     if not text or CODE_PATTERN is None:
         return []
@@ -465,6 +558,12 @@ def extract_codes(text: str) -> list[str]:
 
 
 def find_existing_codes(codes: list[str]) -> set[str]:
+    """
+    Checks which codes in the list already exist in the database.
+
+    :param codes: List of codes to check.
+    :return: A set containing the codes that were found in the database.
+    """
 
     if not codes:
         return set()
@@ -478,6 +577,11 @@ def find_existing_codes(codes: list[str]) -> set[str]:
 
 
 def mark_codes(codes: list[str]):
+    """
+    Saves new codes to the database to prevent future duplicates.
+
+    :param codes: List of codes to insert.
+    """
 
     if not codes:
         return
@@ -494,6 +598,11 @@ def mark_codes(codes: list[str]):
 
 
 async def handler(event):
+    """
+    Main message handler: filters, expands URLs, checks duplicates, and forwards.
+
+    :param event: The Telethon event object containing the message.
+    """
 
     chat_id = event.chat_id
     msg_id = event.id
@@ -510,7 +619,7 @@ async def handler(event):
     # Apply URL filters
     text = await asyncio.to_thread(apply_filters, text)
 
-    # Extrai códigos DEPOIS de expandir/limpar URLs
+    # Extract codes AFTER expanding/cleaning URLs
     codes = list(dict.fromkeys(extract_codes(text)))
 
     if codes:
@@ -875,6 +984,9 @@ def move_filter_down(filter_id: int = Form(...), _ = Depends(require_page_login)
 # ================= BOT THREAD =================
 
 def run_bot():
+    """
+    Runs the Telegram client event loop.
+    """
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -895,6 +1007,12 @@ def run_bot():
 
 
 def parse_cleanup_time(value: str) -> tuple[int, int]:
+    """
+    Parses HH:MM string into hour and minute integers.
+
+    :param value: Time string in "HH:MM" format.
+    :return: Tuple (hour, minute). Defaults to (0, 5) on error.
+    """
 
     try:
         hour_str, minute_str = value.strip().split(":", 1)
@@ -909,6 +1027,12 @@ def parse_cleanup_time(value: str) -> tuple[int, int]:
 
 
 def parse_cleanup_days(value: str) -> int:
+    """
+    Parses the cleanup days configuration value.
+
+    :param value: String value from config.
+    :return: Integer number of days, or default if invalid.
+    """
 
     try:
         return int(value)
@@ -917,6 +1041,13 @@ def parse_cleanup_days(value: str) -> int:
 
 
 def seconds_until_next_run(hour: int, minute: int) -> int:
+    """
+    Calculates seconds remaining until the next scheduled time.
+
+    :param hour: Scheduled hour (0-23).
+    :param minute: Scheduled minute (0-59).
+    :return: Seconds remaining.
+    """
 
     now = datetime.now()
     run_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -927,6 +1058,9 @@ def seconds_until_next_run(hour: int, minute: int) -> int:
 
 
 def cleanup_scheduler():
+    """
+    Background thread that runs daily cleanup tasks.
+    """
 
     while True:
         cfg = dotenv_values(ENV_PATH)
