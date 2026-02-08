@@ -787,6 +787,22 @@ def add_filter(
     return RedirectResponse("/#filters", status_code=303)
 
 
+@app.post("/update-filter")
+def update_filter(
+    _ = Depends(require_page_login),
+    filter_id: int = Form(...),
+    pattern: str = Form(...),
+    replacement: str = Form("")
+):
+    with db_mutex:
+        cur.execute(
+            "UPDATE url_filters SET pattern=?, replacement=? WHERE id=?",
+            (pattern, replacement, filter_id)
+        )
+        conn.commit()
+    return RedirectResponse("/#filters", status_code=303)
+
+
 @app.post("/delete-filter")
 def delete_filter(filter_id: int = Form(...), _ = Depends(require_page_login)):
     with db_mutex:
