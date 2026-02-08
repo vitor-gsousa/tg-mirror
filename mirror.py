@@ -431,7 +431,16 @@ def extract_codes(text: str) -> list[str]:
     if not text or CODE_PATTERN is None:
         return []
 
-    return [normalize_code(match.group(0)) for match in CODE_PATTERN.finditer(text)]
+    codes = []
+    for match in CODE_PATTERN.finditer(text):
+        # Use grupo de captura se existir (ex: (?:/dp/)([A-Z0-9]{10}) captura só o código)
+        # Senão usa o match completo
+        if match.lastindex and match.lastindex > 0:
+            codes.append(normalize_code(match.group(1)))
+        else:
+            codes.append(normalize_code(match.group(0)))
+    
+    return codes
 
 
 def find_existing_codes(codes: list[str]) -> set[str]:
