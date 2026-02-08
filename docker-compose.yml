@@ -1,5 +1,6 @@
 services:
-  bot:
+  tg-mirror:
+    platform: linux/arm/v7
     build: .
     container_name: tg-mirror
     restart: unless-stopped
