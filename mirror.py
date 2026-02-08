@@ -505,7 +505,13 @@ async def handler(event):
     msg = event.message
 
     raw_text = msg.raw_text or ""
-    codes = list(dict.fromkeys(extract_codes(raw_text)))
+    text = raw_text
+
+    # Apply URL filters
+    text = await asyncio.to_thread(apply_filters, text)
+
+    # Extrai códigos DEPOIS de expandir/limpar URLs
+    codes = list(dict.fromkeys(extract_codes(text)))
 
     if codes:
         existing_codes = await asyncio.to_thread(find_existing_codes, codes)
@@ -518,11 +524,6 @@ async def handler(event):
             )
             await asyncio.to_thread(mark_processed, chat_id, msg_id)
             return
-
-    text = raw_text
-
-    # Apply URL filters
-    text = await asyncio.to_thread(apply_filters, text)
 
     try:
         if msg.media:
