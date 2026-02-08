@@ -2,10 +2,12 @@
 
 import os
 import json
+import re
 import sqlite3
 import threading
 import time
 import signal
+import secrets
 import asyncio
 import atexit
 import requests
@@ -19,20 +21,21 @@ from telethon.sessions import StringSession
 from asyncio import Lock
 
 from fastapi import (
-    FastAPI, Request, Form, Depends,
-    HTTPException, status
+    FastAPI, Request, Form, Depends, HTTPException, status
 )
 from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from starlette.middleware.sessions import SessionMiddleware
 
 import uvicorn
 
 
 # ================= CONFIG =================
 
-ENV_PATH = "/config/.env"
-DATA_DIR = "/data"
+# Support both Docker and local execution
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(SCRIPT_DIR, "config", ".env") if os.path.exists(os.path.join(SCRIPT_DIR, "config", ".env")) else "/config/.env"
+DATA_DIR = os.path.join(SCRIPT_DIR, "data") if not os.path.exists("/data") else "/data"
 STATS_PATH = f"{DATA_DIR}/stats.json"
 DB_PATH = f"{DATA_DIR}/state.db"
 LOG_PATH = f"{DATA_DIR}/app.log"
@@ -91,6 +94,14 @@ _stream_handler.setFormatter(
 logger.addHandler(_file_handler)
 logger.addHandler(_stream_handler)
 logger.propagate = False
+
+CODE_REGEX_DEFAULT = r"\b[A-Za-z0-9]{6,}\b"
+CODE_REGEX = os.getenv("DUP_CODE_REGEX", CODE_REGEX_DEFAULT)
+try:
+    CODE_PATTERN = re.compile(CODE_REGEX)
+except re.error as exc:
+    logger.error("Invalid DUP_CODE_REGEX '%s': %s", CODE_REGEX, exc)
+    CODE_PATTERN = None
 
 
 # ================= LOCKS =================
@@ -170,6 +181,33 @@ def init_db():
             name TEXT
         )
         """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS message_codes (
+            code TEXT PRIMARY KEY,
+            created_at TEXT
+        )
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS url_filters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern TEXT,
+            replacement TEXT,
+            sort_order INTEGER DEFAULT 0
+        )
+        """)
+
+        # Add sort_order column if it doesn't exist
+        filter_columns = [row[1] for row in cur.execute(
+            "PRAGMA table_info(url_filters)"
+        ).fetchall()]
+        if "sort_order" not in filter_columns:
+            cur.execute("ALTER TABLE url_filters ADD COLUMN sort_order INTEGER DEFAULT 0")
+            # Initialize sort_order for existing rows
+            cur.execute("""
+                UPDATE url_filters 
+                SET sort_order = id 
+                WHERE sort_order IS NULL OR sort_order = 0
+            """)
 
         columns = [row[1] for row in cur.execute(
             "PRAGMA table_info(processed)"
@@ -189,19 +227,57 @@ init_db()
 # ================= FASTAPI =================
 
 app = FastAPI()
+
+SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+if os.getenv("SESSION_SECRET") is None:
+    logger.warning("SESSION_SECRET not set, sessions will be lost on restart.")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    session_cookie="tg_mirror_session",
+    max_age=3600 * 24 * 7  # 1 week
+)
+
 templates = Jinja2Templates(directory="templates")
-security = HTTPBasic()
 
 
 # ================= AUTH =================
 
-def auth(credentials: HTTPBasicCredentials = Depends(security)):
+@app.get("/login", response_class=HTMLResponse, tags=["auth"])
+async def login_form(request: Request):
+    if request.session.get("authenticated"):
+        return RedirectResponse(url="/")
+    return templates.TemplateResponse("login.html", {"request": request})
 
-    if credentials.password != ADMIN_PASSWORD:
+
+@app.post("/login", tags=["auth"])
+async def handle_login(request: Request, password: str = Form(...)):
+    if password == ADMIN_PASSWORD:
+        request.session["authenticated"] = True
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    else:
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Password inválida"})
+
+
+@app.post("/logout", tags=["auth"])
+async def handle_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def require_page_login(request: Request):
+    if not request.session.get("authenticated"):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Wrong password",
-            headers={"WWW-Authenticate": "Basic"},
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            headers={"Location": "/login"},
+        )
+
+
+def require_api_login(request: Request):
+    if not request.session.get("authenticated"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
 
 
@@ -266,6 +342,25 @@ def get_channel_stats():
     return ordered
 
 
+def get_filters():
+    with db_mutex:
+        return conn.execute(
+            "SELECT id, pattern, replacement FROM url_filters ORDER BY sort_order, id"
+        ).fetchall()
+
+
+def apply_filters(text: str) -> str:
+    if not text:
+        return text
+
+    for _, pattern, replacement in get_filters():
+        try:
+            text = re.sub(pattern, replacement, text)
+        except Exception as e:
+            logger.error("Regex error '%s': %s", pattern, e)
+    return text
+
+
 def tail_file(path: str, max_lines: int = 200) -> str:
 
     if not os.path.exists(path):
@@ -319,6 +414,55 @@ def cleanup_processed(days: int) -> int:
         return cur.rowcount or 0
 
 
+def cleanup_code_cache() -> int:
+
+    with db_mutex:
+        cur.execute("DELETE FROM message_codes")
+        conn.commit()
+        return cur.rowcount or 0
+
+
+def normalize_code(code: str) -> str:
+    return code.strip().upper()
+
+
+def extract_codes(text: str) -> list[str]:
+
+    if not text or CODE_PATTERN is None:
+        return []
+
+    return [normalize_code(match.group(0)) for match in CODE_PATTERN.finditer(text)]
+
+
+def find_existing_codes(codes: list[str]) -> set[str]:
+
+    if not codes:
+        return set()
+
+    placeholders = ",".join("?" for _ in codes)
+    query = f"SELECT code FROM message_codes WHERE code IN ({placeholders})"
+
+    with db_mutex:
+        rows = cur.execute(query, codes).fetchall()
+        return {row[0] for row in rows}
+
+
+def mark_codes(codes: list[str]):
+
+    if not codes:
+        return
+
+    now = utc_now_string()
+    rows = [(code, now) for code in codes]
+
+    with db_mutex:
+        cur.executemany(
+            "INSERT OR IGNORE INTO message_codes (code, created_at) VALUES (?, ?)",
+            rows
+        )
+        conn.commit()
+
+
 async def handler(event):
 
     chat_id = event.chat_id
@@ -330,7 +474,25 @@ async def handler(event):
 
     msg = event.message
 
-    text = msg.raw_text or ""
+    raw_text = msg.raw_text or ""
+    codes = list(dict.fromkeys(extract_codes(raw_text)))
+
+    if codes:
+        existing_codes = await asyncio.to_thread(find_existing_codes, codes)
+        if existing_codes:
+            logger.info(
+                "[SKIP] Duplicate codes %s in %s:%s",
+                ",".join(sorted(existing_codes)),
+                chat_id,
+                msg_id
+            )
+            await asyncio.to_thread(mark_processed, chat_id, msg_id)
+            return
+
+    text = raw_text
+
+    # Apply URL filters
+    text = await asyncio.to_thread(apply_filters, text)
 
     try:
         if msg.media:
@@ -356,6 +518,10 @@ async def handler(event):
     # Save processed
     await asyncio.to_thread(mark_processed, chat_id, msg_id)
 
+    # Save codes
+    if codes:
+        await asyncio.to_thread(mark_codes, codes)
+
     # Update stats
     async with stats_lock:
         stats["messages"] += 1
@@ -365,11 +531,12 @@ async def handler(event):
 # ================= WEB ROUTES =================
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, user=Depends(auth)):
+def index(request: Request, _ = Depends(require_page_login)):
 
     cfg = dotenv_values(ENV_PATH)
     stats_data = get_stats()
     channel_stats = get_channel_stats()
+    filters = get_filters()
 
     return templates.TemplateResponse(
         "index.html",
@@ -377,7 +544,8 @@ def index(request: Request, user=Depends(auth)):
             "request": request,
             "cfg": cfg,
             "stats": stats_data,
-            "channel_stats": channel_stats
+            "channel_stats": channel_stats,
+            "filters": filters
         }
     )
 
@@ -388,18 +556,18 @@ def health():
 
 
 @app.get("/logs", response_class=PlainTextResponse)
-def logs(lines: int = 200, user=Depends(auth)):
+def logs(_ = Depends(require_api_login), lines: int = 200):
     return tail_file(LOG_PATH, max_lines=min(max(lines, 20), 1000))
 
 
 @app.post("/save")
 def save(
+    _ = Depends(require_page_login),
     api_id: str = Form(...),
     api_hash: str = Form(...),
     session_string: str = Form(""),
     dest_chat: str = Form(...),
-    source_chats: str = Form(...),
-    user=Depends(auth)
+    source_chats: str = Form(...)
 ):
 
     env = dotenv_values(ENV_PATH)
@@ -413,13 +581,13 @@ def save(
 
     save_env(env)
 
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/#config", status_code=303)
 
 
 @app.post("/save-db")
 def save_db(
-    cleanup_days: str = Form(""),
-    user=Depends(auth)
+    _ = Depends(require_page_login),
+    cleanup_days: str = Form("")
 ):
 
     env = dotenv_values(ENV_PATH)
@@ -433,11 +601,11 @@ def save_db(
 
     save_env(env)
 
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/#db", status_code=303)
 
 
 @app.post("/restart")
-def restart(user=Depends(auth)):
+def restart(_ = Depends(require_page_login)):
 
     os.kill(os.getpid(), signal.SIGTERM)
 
@@ -445,26 +613,26 @@ def restart(user=Depends(auth)):
 
 
 @app.post("/clear-db")
-def clear_db(user=Depends(auth)):
+def clear_db(_ = Depends(require_page_login)):
 
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
         logger.info("Database cleared")
 
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/#db", status_code=303)
 
 
 @app.post("/add-source-chat")
 def add_source_chat(
+    _ = Depends(require_page_login),
     chat_id: str = Form(...),
-    name: str = Form(""),
-    user=Depends(auth)
+    name: str = Form("")
 ):
 
     try:
         chat_id_int = int(chat_id)
     except ValueError:
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/#config", status_code=303)
 
     env = dotenv_values(ENV_PATH)
 
@@ -495,7 +663,92 @@ def add_source_chat(
 
     logger.info("Source chat added/updated: %s", chat_id_int)
 
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/#config", status_code=303)
+
+
+@app.post("/add-filter")
+def add_filter(
+    _ = Depends(require_page_login),
+    pattern: str = Form(...),
+    replacement: str = Form("")
+):
+    with db_mutex:
+        # Get max sort_order and add 1
+        max_order = cur.execute("SELECT COALESCE(MAX(sort_order), 0) FROM url_filters").fetchone()[0]
+        cur.execute(
+            "INSERT INTO url_filters (pattern, replacement, sort_order) VALUES (?, ?, ?)",
+            (pattern, replacement, max_order + 1)
+        )
+        conn.commit()
+    return RedirectResponse("/#filters", status_code=303)
+
+
+@app.post("/delete-filter")
+def delete_filter(filter_id: int = Form(...), _ = Depends(require_page_login)):
+    with db_mutex:
+        cur.execute("DELETE FROM url_filters WHERE id=?", (filter_id,))
+        conn.commit()
+    return RedirectResponse("/#filters", status_code=303)
+
+
+@app.post("/move-filter-up")
+def move_filter_up(filter_id: int = Form(...), _ = Depends(require_page_login)):
+    with db_mutex:
+        # Get current filter
+        current = cur.execute(
+            "SELECT id, sort_order FROM url_filters WHERE id=?", 
+            (filter_id,)
+        ).fetchone()
+        
+        if not current:
+            return RedirectResponse("/#filters", status_code=303)
+        
+        current_id, current_order = current
+        
+        # Get previous filter
+        previous = cur.execute(
+            "SELECT id, sort_order FROM url_filters WHERE sort_order < ? ORDER BY sort_order DESC LIMIT 1",
+            (current_order,)
+        ).fetchone()
+        
+        if previous:
+            prev_id, prev_order = previous
+            # Swap sort_order
+            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (prev_order, current_id))
+            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (current_order, prev_id))
+            conn.commit()
+    
+    return RedirectResponse("/#filters", status_code=303)
+
+
+@app.post("/move-filter-down")
+def move_filter_down(filter_id: int = Form(...), _ = Depends(require_page_login)):
+    with db_mutex:
+        # Get current filter
+        current = cur.execute(
+            "SELECT id, sort_order FROM url_filters WHERE id=?", 
+            (filter_id,)
+        ).fetchone()
+        
+        if not current:
+            return RedirectResponse("/#filters", status_code=303)
+        
+        current_id, current_order = current
+        
+        # Get next filter
+        next_filter = cur.execute(
+            "SELECT id, sort_order FROM url_filters WHERE sort_order > ? ORDER BY sort_order ASC LIMIT 1",
+            (current_order,)
+        ).fetchone()
+        
+        if next_filter:
+            next_id, next_order = next_filter
+            # Swap sort_order
+            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (next_order, current_id))
+            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (current_order, next_id))
+            conn.commit()
+    
+    return RedirectResponse("/#filters", status_code=303)
 
 
 # ================= BOT THREAD =================
@@ -506,9 +759,11 @@ def run_bot():
     asyncio.set_event_loop(loop)
 
     async def main():
-        await client.start()
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.start()  # type: ignore
         client.add_event_handler(handler, events.NewMessage(chats=SOURCE_CHATS))
-        await client.run_until_disconnected()
+        await client.run_until_disconnected() # type: ignore
 
     try:
         loop.run_until_complete(main())
@@ -554,23 +809,20 @@ def cleanup_scheduler():
 
     while True:
         cfg = dotenv_values(ENV_PATH)
-        days = parse_cleanup_days(cfg.get("CLEANUP_DAYS") or str(CLEANUP_DAYS_DEFAULT))
-        time_value = cfg.get("CLEANUP_TIME", CLEANUP_TIME_DEFAULT)
+        time_value = cfg.get("CLEANUP_TIME") or CLEANUP_TIME_DEFAULT
         hour, minute = parse_cleanup_time(time_value)
-
-        if days <= 0:
-            time.sleep(300)
-            continue
 
         time.sleep(seconds_until_next_run(hour, minute))
 
         cfg = dotenv_values(ENV_PATH)
         days = parse_cleanup_days(cfg.get("CLEANUP_DAYS") or str(CLEANUP_DAYS_DEFAULT))
-        if days <= 0:
-            continue
 
-        removed = cleanup_processed(days)
-        logger.info("Cleanup removed %s rows older than %s days", removed, days)
+        if days > 0:
+            removed = cleanup_processed(days)
+            logger.info("Cleanup removed %s rows older than %s days", removed, days)
+
+        removed_codes = cleanup_code_cache()
+        logger.info("Code cache cleanup removed %s rows", removed_codes)
 
 
 # ================= SHUTDOWN =================
