@@ -9,3 +9,8 @@ services:
     volumes:
       - ./config:/config
       - ./data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
