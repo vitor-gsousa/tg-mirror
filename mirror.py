@@ -254,7 +254,7 @@ app.add_middleware(
     max_age=3600 * 24 * 7  # 1 week
 )
 
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory="/app/templates")
 
 
 # ================= AUTH =================
