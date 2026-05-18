@@ -25,7 +25,7 @@ from fastapi import (
     FastAPI, Request, Form, Depends, HTTPException, status
 )
 from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
+from starlette.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 import uvicorn
@@ -77,23 +77,24 @@ CLEANUP_TIME_DEFAULT = "00:05"
 logger = logging.getLogger("tg-mirror")
 logger.setLevel(logging.INFO)
 
-_file_handler = RotatingFileHandler(
-    LOG_PATH,
-    maxBytes=2 * 1024 * 1024,
-    backupCount=3,
-    encoding="utf-8"
-)
-_file_handler.setFormatter(
-    logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
-)
-
-_stream_handler = logging.StreamHandler()
-_stream_handler.setFormatter(
-    logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
-)
-
-logger.addHandler(_file_handler)
-logger.addHandler(_stream_handler)
+if not logger.handlers:
+    _file_handler = RotatingFileHandler(
+        LOG_PATH,
+        maxBytes=2 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8"
+    )
+    _file_handler.setFormatter(
+        logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
+    )
+    
+    _stream_handler = logging.StreamHandler()
+    _stream_handler.setFormatter(
+        logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
+    )
+    
+    logger.addHandler(_file_handler)
+    logger.addHandler(_stream_handler)
 logger.propagate = False
 
 CODE_REGEX_DEFAULT = r"\b[A-Za-z0-9]{6,}\b"
