@@ -1,9 +1,9 @@
 services:
   tg-mirror:
     platform: linux/arm/v7
-    build: .
+    image: ghcr.io/vitor-gsousa/tg-mirror:latest
     container_name: tg-mirror
-    restart: unless-stopped
+    restart: always
     ports:
       - "8000:8000"
     volumes:
