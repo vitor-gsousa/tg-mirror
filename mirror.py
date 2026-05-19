@@ -264,7 +264,7 @@ templates = Jinja2Templates(directory="/app/templates")
 async def login_form(request: Request):
     if request.session.get("authenticated"):
         return RedirectResponse(url="/")
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 
 @app.post("/login", tags=["auth"])
