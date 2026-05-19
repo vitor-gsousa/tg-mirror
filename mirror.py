@@ -273,7 +273,7 @@ async def handle_login(request: Request, password: str = Form(...)):
         request.session["authenticated"] = True
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     else:
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Password inválida"})
+        return templates.TemplateResponse(request, "login.html", {"error": "Password inválida"})
 
 
 @app.post("/logout", tags=["auth"])
@@ -680,16 +680,15 @@ def index(request: Request, _ = Depends(require_page_login)):
     filters = get_filters()
 
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "cfg": cfg,
             "stats": stats_data,
             "channel_stats": channel_stats,
             "filters": filters
         }
     )
-
 
 @app.get("/health")
 def health():
