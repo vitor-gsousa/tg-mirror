@@ -24,19 +24,27 @@ from asyncio import Lock
 from fastapi import (
     FastAPI, Request, Form, Depends, HTTPException, status
 )
-from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse, JSONResponse
+from fastapi.responses import (
+    RedirectResponse, HTMLResponse, PlainTextResponse, JSONResponse
+)
 from starlette.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 import uvicorn
+
+from repository import SQLiteRepository
+import services as app_services
 
 
 # ================= CONFIG =================
 
 # Support both Docker and local execution
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ENV_PATH = os.path.join(SCRIPT_DIR, "config", ".env") if os.path.exists(os.path.join(SCRIPT_DIR, "config", ".env")) else "/config/.env"
-DATA_DIR = os.path.join(SCRIPT_DIR, "data") if not os.path.exists("/data") else "/data"
+_config_env_path = os.path.join(SCRIPT_DIR, "config", ".env")
+ENV_PATH = _config_env_path if os.path.exists(
+    _config_env_path) else "/config/.env"
+DATA_DIR = os.path.join(SCRIPT_DIR, "data") if not os.path.exists(
+    "/data") else "/data"
 STATS_PATH = f"{DATA_DIR}/stats.json"
 DB_PATH = f"{DATA_DIR}/state.db"
 LOG_PATH = f"{DATA_DIR}/app.log"
@@ -45,7 +53,8 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 load_dotenv(ENV_PATH)
 
-REQUIRED_VARS = ["API_ID", "API_HASH", "DEST_CHAT", "SOURCE_CHATS", "ADMIN_PASSWORD"]
+REQUIRED_VARS = ["API_ID", "API_HASH",
+                 "DEST_CHAT", "SOURCE_CHATS", "ADMIN_PASSWORD"]
 
 for var in REQUIRED_VARS:
     if not os.getenv(var):
@@ -70,6 +79,11 @@ SESSION_NAME = os.environ.get("SESSION", "mirror")
 WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 CLEANUP_DAYS_DEFAULT = 30
 CLEANUP_TIME_DEFAULT = "00:05"
+DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.07.02")
+DASHBOARD_DEPLOY_NOTE = os.getenv(
+    "DASHBOARD_DEPLOY_NOTE",
+    "Refactor: repository.py + services.py"
+)
 
 
 # ================= LOGGING =================
@@ -87,12 +101,12 @@ if not logger.handlers:
     _file_handler.setFormatter(
         logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
     )
-    
+
     _stream_handler = logging.StreamHandler()
     _stream_handler.setFormatter(
         logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
     )
-    
+
     logger.addHandler(_file_handler)
     logger.addHandler(_stream_handler)
 logger.propagate = False
@@ -115,10 +129,11 @@ stats_lock = Lock()
 # ================= STATS =================
 
 def load_stats() -> dict[str, Any]:
-    """
-    Loads application statistics from the JSON file.
+    """Load service metrics from disk.
 
-    :return: A dictionary containing statistics or default values.
+    Returns:
+        dict[str, Any]: Persisted stats. Falls back to default values when the
+        stats file is missing or unreadable.
     """
     if not os.path.exists(STATS_PATH):
         return {"messages": 0, "status": "starting"}
@@ -131,10 +146,10 @@ def load_stats() -> dict[str, Any]:
 
 
 def save_stats(data: dict[str, Any]):
-    """
-    Saves application statistics to the JSON file safely.
+    """Persist service metrics atomically to disk.
 
-    :param data: The statistics dictionary to save.
+    Args:
+        data (dict[str, Any]): Stats payload to be saved.
     """
     with open(STATS_PATH, "w") as f:
         json.dump(data, f)
@@ -172,69 +187,22 @@ conn.execute("PRAGMA journal_mode=WAL;")
 cur = conn.cursor()
 
 
+repository = SQLiteRepository(conn, cur, db_mutex)
+
+
 def utc_now_string() -> str:
+    """Return the current UTC timestamp formatted for SQLite."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def init_db():
+    """Create required tables and apply lightweight schema migrations.
+
+    Initializes structures used for processed messages, channel labels,
+    deduplication codes, and URL filters.
     """
-    Initializes the database tables and migrates schema if necessary.
-    Creates tables for processed messages, channels, codes, and filters.
-    """
 
-    with db_mutex:
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS processed (
-            chat_id INTEGER,
-            message_id INTEGER,
-            created_at TEXT,
-            PRIMARY KEY (chat_id, message_id)
-        )
-        """)
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS channels (
-            chat_id INTEGER PRIMARY KEY,
-            name TEXT
-        )
-        """)
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS message_codes (
-            code TEXT PRIMARY KEY,
-            created_at TEXT
-        )
-        """)
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS url_filters (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pattern TEXT,
-            replacement TEXT,
-            sort_order INTEGER DEFAULT 0
-        )
-        """)
-
-        # Add sort_order column if it doesn't exist
-        filter_columns = [row[1] for row in cur.execute(
-            "PRAGMA table_info(url_filters)"
-        ).fetchall()]
-        if "sort_order" not in filter_columns:
-            cur.execute("ALTER TABLE url_filters ADD COLUMN sort_order INTEGER DEFAULT 0")
-            # Initialize sort_order for existing rows
-            cur.execute("""
-                UPDATE url_filters 
-                SET sort_order = id 
-                WHERE sort_order IS NULL OR sort_order = 0
-            """)
-
-        columns = [row[1] for row in cur.execute(
-            "PRAGMA table_info(processed)"
-        ).fetchall()]
-        if "created_at" not in columns:
-            cur.execute("ALTER TABLE processed ADD COLUMN created_at TEXT")
-            cur.execute(
-                "UPDATE processed SET created_at = ? WHERE created_at IS NULL",
-                (utc_now_string(),)
-            )
-        conn.commit()
+    repository.init_schema()
 
 
 init_db()
@@ -262,6 +230,15 @@ templates = Jinja2Templates(directory="/app/templates")
 
 @app.get("/login", response_class=HTMLResponse, tags=["auth"])
 async def login_form(request: Request):
+    """Render the login page or redirect authenticated users to home.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Returns:
+        RedirectResponse | HTMLResponse: Redirect to home when the user is
+        already authenticated, otherwise the login template.
+    """
     if request.session.get("authenticated"):
         return RedirectResponse(url="/")
     return templates.TemplateResponse(request, "login.html")
@@ -269,20 +246,50 @@ async def login_form(request: Request):
 
 @app.post("/login", tags=["auth"])
 async def handle_login(request: Request, password: str = Form(...)):
+    """Authenticate a user session based on the admin password.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        password (str): Password submitted from the login form.
+
+    Returns:
+        RedirectResponse | HTMLResponse: Redirect to home on success or render
+        the login template with an error message on failure.
+    """
     if password == ADMIN_PASSWORD:
         request.session["authenticated"] = True
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     else:
-        return templates.TemplateResponse(request, "login.html", {"error": "Password inválida"})
+        return templates.TemplateResponse(
+            request, "login.html", {"error": "Password inválida"}
+        )
 
 
 @app.post("/logout", tags=["auth"])
 async def handle_logout(request: Request):
+    """Invalidate the current session and redirect to the login page.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Returns:
+        RedirectResponse: Redirect to the login route.
+    """
     request.session.clear()
-    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        url="/login", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 def require_page_login(request: Request):
+    """Ensure page routes are accessed only by authenticated users.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Raises:
+        HTTPException: 307 redirect to the login page when unauthenticated.
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(
             status_code=status.HTTP_307_TEMPORARY_REDIRECT,
@@ -291,19 +298,28 @@ def require_page_login(request: Request):
 
 
 def require_api_login(request: Request):
+    """Ensure API routes are accessed only by authenticated users.
+
+    Args:
+        request (Request): Incoming HTTP request.
+
+    Raises:
+        HTTPException: 401 error when the session is not authenticated.
+    """
     if not request.session.get("authenticated"):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
         )
 
 
 # ================= HELPERS =================
 
 def get_stats() -> dict[str, Any]:
-    """
-    Retrieves current statistics safely.
+    """Read runtime metrics from disk with graceful fallback.
 
-    :return: A dictionary with current stats or error status.
+    Returns:
+        dict[str, Any]: Stats payload or an error-safe default structure.
     """
 
     if not os.path.exists(STATS_PATH):
@@ -317,10 +333,10 @@ def get_stats() -> dict[str, Any]:
 
 
 def save_env(data: dict[str, Any]):
-    """
-    Writes configuration key-value pairs to the .env file.
+    """Write environment configuration values to the .env file.
 
-    :param data: Dictionary containing environment variables to save.
+    Args:
+        data (dict[str, Any]): Key-value pairs to persist.
     """
 
     with open(ENV_PATH, "w") as f:
@@ -329,90 +345,116 @@ def save_env(data: dict[str, Any]):
                 f.write(f"{k}={v}\n")
 
 
+def load_env_config() -> dict[str, Any]:
+    """Load configuration values from the .env file.
+
+    Returns:
+        dict[str, Any]: Environment configuration mapping.
+    """
+    return dict(dotenv_values(ENV_PATH))
+
+
+def save_env_config(config: dict[str, Any]):
+    """Persist environment configuration and enforce required secrets.
+
+    Args:
+        config (dict[str, Any]): Environment configuration mapping.
+    """
+    config["ADMIN_PASSWORD"] = ADMIN_PASSWORD
+    save_env(config)
+
+
+def parse_chat_id_list(value: str) -> list[int]:
+    """Parse a comma-separated list of chat IDs.
+
+    Args:
+        value (str): Raw chat ID list.
+
+    Returns:
+        list[int]: Parsed chat IDs.
+    """
+    return [
+        int(chat_id.strip())
+        for chat_id in value.split(",")
+        if chat_id.strip()
+    ]
+
+
 def get_channel_stats() -> list[dict[str, Any]]:
+    """Build per-channel message counters for dashboard rendering.
+
+    Returns:
+        list[dict[str, Any]]: Ordered channel stats including chat ID, label,
+        and processed message count.
     """
-    Aggregates message counts per channel from the database.
 
-    :return: A list of dictionaries containing chat_id, name, and message count.
-    """
-
-    labels = {}
-    try:
-        with db_mutex:
-            rows = conn.execute("SELECT chat_id, name FROM channels").fetchall()
-            labels = {row[0]: (row[1] or "") for row in rows}
-    except Exception:
-        labels = {}
-
-    counts = {}
-    try:
-        with db_mutex:
-            rows = conn.execute(
-                "SELECT chat_id, COUNT(*) FROM processed GROUP BY chat_id"
-            ).fetchall()
-            counts = {row[0]: row[1] for row in rows}
-    except Exception:
-        counts = {}
-
-    ordered = []
-    for chat_id in SOURCE_CHATS:
-        ordered.append({
-            "chat_id": chat_id,
-            "name": labels.get(chat_id, ""),
-            "messages": counts.get(chat_id, 0)
-        })
-
-    for chat_id, msg_count in counts.items():
-        if chat_id not in SOURCE_CHATS:
-            ordered.append({
-                "chat_id": chat_id,
-                "name": labels.get(chat_id, ""),
-                "messages": msg_count
-            })
-
-    return ordered
+    return app_services.get_channel_stats(repository, SOURCE_CHATS)
 
 
 def get_filters() -> list[tuple[Any, ...]]:
-    with db_mutex:
-        return conn.execute(
-            "SELECT id, pattern, replacement FROM url_filters ORDER BY sort_order, id"
-        ).fetchall()
+    """Return URL filter rules sorted by their execution order.
+
+    Returns:
+        list[tuple[Any, ...]]: Filter tuples as
+        (id, pattern, replacement).
+    """
+    return app_services.get_filters(repository)
+
+
+def move_filter(filter_id: int, move_up: bool):
+    """Move one filter up or down in execution order.
+
+    Args:
+        filter_id (int): Filter identifier.
+        move_up (bool): True to move up, False to move down.
+    """
+    app_services.move_filter(repository, filter_id, move_up)
+
 
 def _expand_url(session: requests.Session, url: str) -> str:
-    """
-    Helper to expand a single URL and clean Amazon parameters.
+    """Resolve redirects for one URL and normalize Amazon product links.
 
-    :param session: The active requests Session.
-    :param url: The URL to be expanded.
-    :return: The final URL after following redirects and cleaning parameters.
+    Args:
+        session (requests.Session): Active HTTP session used for requests.
+        url (str): URL to expand.
+
+    Returns:
+        str: Final URL after redirects. Returns the original URL when
+        expansion fails.
     """
     try:
         resp = session.get(url, allow_redirects=True, timeout=10, stream=True)
         final_url = resp.url
         resp.close()
-        
+
         # Only clean parameters if it is a product link (/dp/ or /gp/)
         if ("/dp/" in final_url or "/gp/" in final_url) and "?" in final_url:
             final_url = final_url.split("?")[0]
-            
+
         return final_url
     except Exception as e:
         logger.error("Failed to expand %s: %s", url, e)
         return url
 
-def apply_filters(text: str) -> str:
-    """
-    Applies URL expansion and regex replacements to the message text.
 
-    :param text: The input message text.
-    :return: The processed text with expanded URLs and applied filters.
+def apply_filters(text: str) -> str:
+    """Apply configured URL and regex transformations to message text.
+
+    Args:
+        text (str): Original message text.
+
+    Returns:
+        str: Transformed message text.
     """
     if not text:
         return text
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
     }
 
     for _, pattern, replacement in get_filters():
@@ -440,12 +482,14 @@ def apply_filters(text: str) -> str:
 
 
 def tail_file(path: str, max_lines: int = 200) -> str:
-    """
-    Reads the last N lines of a file.
+    """Read the tail of a text file.
 
-    :param path: Path to the file.
-    :param max_lines: Maximum number of lines to read from the end.
-    :return: The content of the last lines as a string.
+    Args:
+        path (str): File path to read.
+        max_lines (int): Number of lines to return from the end.
+
+    Returns:
+        str: File tail content, or a user-friendly error message.
     """
 
     if not os.path.exists(path):
@@ -462,179 +506,155 @@ def tail_file(path: str, max_lines: int = 200) -> str:
 # ================= TELEGRAM HANDLER =================
 
 def is_processed(chat_id: int, msg_id: int) -> bool:
-    """
-    Checks if a message has already been processed to prevent duplicates.
+    """Check whether a source message was already mirrored.
 
-    :param chat_id: The source chat ID.
-    :param msg_id: The message ID.
-    :return: True if processed, False otherwise.
+    Args:
+        chat_id (int): Source chat identifier.
+        msg_id (int): Source message identifier.
+
+    Returns:
+        bool: True when the message is already processed.
     """
 
-    with db_mutex:
-        cur.execute(
-            "SELECT 1 FROM processed WHERE chat_id=? AND message_id=?",
-            (chat_id, msg_id)
-        )
-        return cur.fetchone() is not None
+    return app_services.is_processed(repository, chat_id, msg_id)
 
 
 def mark_processed(chat_id: int, msg_id: int):
-    """
-    Marks a message as processed in the database.
+    """Persist a source message as processed.
 
-    :param chat_id: The source chat ID.
-    :param msg_id: The message ID.
+    Args:
+        chat_id (int): Source chat identifier.
+        msg_id (int): Source message identifier.
     """
 
-    with db_mutex:
-        cur.execute(
-            "INSERT OR IGNORE INTO processed VALUES (?, ?, ?)",
-            (chat_id, msg_id, utc_now_string())
-        )
-        conn.commit()
+    app_services.mark_processed(repository, chat_id, msg_id)
 
 
 def cleanup_processed(days: int) -> int:
+    """Delete processed-message rows older than the configured retention.
+
+    Args:
+        days (int): Retention period in days.
+
+    Returns:
+        int: Number of deleted rows.
     """
-    Removes processed message records older than the specified number of days.
 
-    :param days: Retention period in days.
-    :return: Number of rows deleted.
-    """
-
-    if days <= 0:
-        return 0
-
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-    with db_mutex:
-        cur.execute(
-            "DELETE FROM processed WHERE created_at IS NOT NULL AND created_at < ?",
-            (cutoff,)
-        )
-        conn.commit()
-        return cur.rowcount or 0
+    return app_services.cleanup_processed(repository, days)
 
 
 def cleanup_code_cache() -> int:
-    """
-    Clears the cache of deduplication codes.
+    """Clear all cached deduplication codes.
 
-    :return: Number of rows deleted.
+    Returns:
+        int: Number of deleted rows.
     """
 
-    with db_mutex:
-        cur.execute("DELETE FROM message_codes")
-        conn.commit()
-        return cur.rowcount or 0
+    return app_services.cleanup_code_cache(repository)
 
 
 def normalize_code(code: str) -> str:
-    return code.strip().upper()
+    """Normalize a deduplication code for stable comparisons.
+
+    Args:
+        code (str): Raw extracted code.
+
+    Returns:
+        str: Trimmed uppercase code.
+    """
+    return app_services.normalize_code(code)
 
 
 def extract_codes(text: str) -> list[str]:
+    """Extract candidate deduplication codes from text.
+
+    Args:
+        text (str): Message content to inspect.
+
+    Returns:
+        list[str]: Extracted normalized codes, possibly with duplicates.
     """
-    Extracts codes from text using the configured regex pattern.
 
-    :param text: The text to search.
-    :return: A list of unique codes found.
-    """
-
-    if not text or CODE_PATTERN is None:
-        return []
-
-    codes = []
-    for match in CODE_PATTERN.finditer(text):
-        # Use capture group if exists (e.g. (?:/dp/)([A-Z0-9]{10}) captures only the code)
-        # Otherwise use full match
-        if match.lastindex and match.lastindex > 0:
-            codes.append(normalize_code(match.group(1)))
-        else:
-            codes.append(normalize_code(match.group(0)))
-    
-    return codes
+    return app_services.extract_codes(text, CODE_PATTERN)
 
 
 def find_existing_codes(codes: list[str]) -> set[str]:
+    """Fetch codes that are already present in the dedup cache.
+
+    Args:
+        codes (list[str]): Codes to query.
+
+    Returns:
+        set[str]: Codes found in storage.
     """
-    Checks which codes in the list already exist in the database.
 
-    :param codes: List of codes to check.
-    :return: A set containing the codes that were found in the database.
-    """
-
-    if not codes:
-        return set()
-
-    placeholders = ",".join("?" for _ in codes)
-    query = f"SELECT code FROM message_codes WHERE code IN ({placeholders})"
-
-    with db_mutex:
-        rows = cur.execute(query, codes).fetchall()
-        return {row[0] for row in rows}
+    return app_services.find_existing_codes(repository, codes)
 
 
 def mark_codes(codes: list[str]):
-    """
-    Saves new codes to the database to prevent future duplicates.
+    """Store newly observed codes for future deduplication.
 
-    :param codes: List of codes to insert.
+    Args:
+        codes (list[str]): Codes to insert when absent.
     """
 
+    app_services.mark_codes(repository, codes)
+
+
+def deduplicate_codes(text: str) -> list[str]:
+    """Extract and deduplicate normalized codes preserving order.
+
+    Args:
+        text (str): Message text after transformations.
+
+    Returns:
+        list[str]: Unique codes preserving first appearance order.
+    """
+    return list(dict.fromkeys(extract_codes(text)))
+
+
+async def has_duplicate_codes(
+    codes: list[str],
+    chat_id: int,
+    msg_id: int
+) -> bool:
+    """Check whether any extracted code was already seen.
+
+    Args:
+        codes (list[str]): Extracted deduplication codes.
+        chat_id (int): Source chat identifier.
+        msg_id (int): Source message identifier.
+
+    Returns:
+        bool: True when duplicate codes are found.
+    """
     if not codes:
-        return
+        return False
 
-    now = utc_now_string()
-    rows = [(code, now) for code in codes]
+    existing_codes = await asyncio.to_thread(find_existing_codes, codes)
+    if not existing_codes:
+        return False
 
-    with db_mutex:
-        cur.executemany(
-            "INSERT OR IGNORE INTO message_codes (code, created_at) VALUES (?, ?)",
-            rows
-        )
-        conn.commit()
+    logger.info(
+        "[SKIP] Duplicate codes %s in %s:%s",
+        ",".join(sorted(existing_codes)),
+        chat_id,
+        msg_id
+    )
+    return True
 
 
-async def handler(event):
+async def forward_event_message(msg: Any, text: str, msg_id: int) -> bool:
+    """Forward an incoming message to the destination chat.
+
+    Args:
+        msg (Any): Telethon message object.
+        text (str): Message text/caption to forward.
+        msg_id (int): Source message identifier for logging.
+
+    Returns:
+        bool: True when forwarding succeeds.
     """
-    Main message handler: filters, expands URLs, checks duplicates, and forwards.
-
-    :param event: The Telethon event object containing the message.
-    """
-
-    chat_id = event.chat_id
-    msg_id = event.id
-
-    # Check duplicates
-    if await asyncio.to_thread(is_processed, chat_id, msg_id):
-        return
-
-    msg = event.message
-
-    raw_text = msg.raw_text or ""
-    text = raw_text
-
-    # Apply URL filters
-    text = await asyncio.to_thread(apply_filters, text)
-
-    # Extract codes AFTER expanding/cleaning URLs
-    codes = list(dict.fromkeys(extract_codes(text)))
-
-    if codes:
-        existing_codes = await asyncio.to_thread(find_existing_codes, codes)
-        if existing_codes:
-            logger.info(
-                "[SKIP] Duplicate codes %s in %s:%s",
-                ",".join(sorted(existing_codes)),
-                chat_id,
-                msg_id
-            )
-            await asyncio.to_thread(mark_processed, chat_id, msg_id)
-            return
-
     try:
         if msg.media:
             await client.send_file(
@@ -649,9 +669,43 @@ async def handler(event):
                 text,
                 silent=True
             )
+    except Exception as exc:
+        logger.error("Error forwarding %s: %s", msg_id, exc)
+        return False
 
-    except Exception as e:
-        logger.error("Error forwarding %s: %s", msg_id, e)
+    return True
+
+
+async def increment_message_counter():
+    """Increment mirrored-message counter and persist stats."""
+    async with stats_lock:
+        stats["messages"] += 1
+        save_stats(stats)
+
+
+async def handler(event):
+    """Mirror new Telegram messages after filtering and deduplication.
+
+    Args:
+        event: Telethon event containing the incoming message.
+    """
+
+    chat_id = event.chat_id
+    msg_id = event.id
+
+    # Check duplicates
+    if await asyncio.to_thread(is_processed, chat_id, msg_id):
+        return
+
+    msg = event.message
+    text = await asyncio.to_thread(apply_filters, msg.raw_text or "")
+    codes = deduplicate_codes(text)
+
+    if await has_duplicate_codes(codes, chat_id, msg_id):
+        await asyncio.to_thread(mark_processed, chat_id, msg_id)
+        return
+
+    if not await forward_event_message(msg, text, msg_id):
         return
 
     logger.info("[OK] Forwarded %s:%s", chat_id, msg_id)
@@ -664,15 +718,22 @@ async def handler(event):
         await asyncio.to_thread(mark_codes, codes)
 
     # Update stats
-    async with stats_lock:
-        stats["messages"] += 1
-        save_stats(stats)
+    await increment_message_counter()
 
 
 # ================= WEB ROUTES =================
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, _ = Depends(require_page_login)):
+def index(request: Request, _=Depends(require_page_login)):
+    """Render the main admin dashboard.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        _ : Authentication dependency guard.
+
+    Returns:
+        HTMLResponse: Rendered dashboard page.
+    """
 
     cfg = dotenv_values(ENV_PATH)
     stats_data = get_stats()
@@ -686,71 +747,118 @@ def index(request: Request, _ = Depends(require_page_login)):
             "cfg": cfg,
             "stats": stats_data,
             "channel_stats": channel_stats,
-            "filters": filters
+            "filters": filters,
+            "dashboard_version": DASHBOARD_VERSION,
+            "dashboard_deploy_note": DASHBOARD_DEPLOY_NOTE,
+            "dashboard_rendered_at": datetime.now(timezone.utc).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            )
         }
     )
 
+
 @app.get("/health")
 def health():
+    """Return a minimal liveness payload for health checks.
+
+    Returns:
+        dict[str, str]: Service liveness status.
+    """
     return {"status": "ok"}
 
 
 @app.get("/logs", response_class=PlainTextResponse)
-def logs(_ = Depends(require_api_login), lines: int = 200):
+def logs(_=Depends(require_api_login), lines: int = 200):
+    """Return the latest application log lines.
+
+    Args:
+        _ : Authentication dependency guard.
+        lines (int): Requested number of tail lines.
+
+    Returns:
+        str: Log tail text limited to a safe range.
+    """
     return tail_file(LOG_PATH, max_lines=min(max(lines, 20), 1000))
 
 
 @app.post("/save")
 def save(
-    _ = Depends(require_page_login),
+    _=Depends(require_page_login),
     api_id: str = Form(...),
     api_hash: str = Form(...),
     session_string: str = Form(""),
     dest_chat: str = Form(...),
     source_chats: str = Form(...)
 ):
+    """Persist core Telegram mirror configuration from the admin form.
 
-    env = dotenv_values(ENV_PATH)
+    Args:
+        _ : Authentication dependency guard.
+        api_id (str): Telegram API ID.
+        api_hash (str): Telegram API hash.
+        session_string (str): Optional Telethon string session.
+        dest_chat (str): Destination chat identifier.
+        source_chats (str): Comma-separated source chat identifiers.
+
+    Returns:
+        RedirectResponse: Redirect to the configuration section.
+    """
+
+    env = load_env_config()
 
     env["API_ID"] = api_id
     env["API_HASH"] = api_hash
     env["SESSION_STRING"] = session_string
     env["DEST_CHAT"] = dest_chat
     env["SOURCE_CHATS"] = source_chats
-    env["ADMIN_PASSWORD"] = ADMIN_PASSWORD
-
-    save_env(env)
+    save_env_config(env)
 
     return RedirectResponse("/#config", status_code=303)
 
 
 @app.post("/save-db")
 def save_db(
-    _ = Depends(require_page_login),
+    _=Depends(require_page_login),
     cleanup_days: str = Form("")
 ):
+    """Persist database cleanup settings from the admin form.
 
-    env = dotenv_values(ENV_PATH)
+    Args:
+        _ : Authentication dependency guard.
+        cleanup_days (str): Retention in days. Empty value removes override.
+
+    Returns:
+        RedirectResponse: Redirect to the database section.
+    """
+
+    env = load_env_config()
 
     if cleanup_days.strip():
         env["CLEANUP_DAYS"] = cleanup_days.strip()
     else:
         env.pop("CLEANUP_DAYS", None)
 
-    env["ADMIN_PASSWORD"] = ADMIN_PASSWORD
-
-    save_env(env)
+    save_env_config(env)
 
     return RedirectResponse("/#db", status_code=303)
 
 
 @app.post("/save-dup-config")
 def save_dup_config(
-    _ = Depends(require_page_login),
+    _=Depends(require_page_login),
     dup_code_regex: str = Form("")
 ):
+    """Persist duplicate-detection regex configuration.
 
-    env = dotenv_values(ENV_PATH)
+    Args:
+        _ : Authentication dependency guard.
+        dup_code_regex (str): Regex used to extract deduplication codes.
+
+    Returns:
+        RedirectResponse: Redirect to filters section.
+    """
+
+    env = load_env_config()
 
     if dup_code_regex.strip():
         # Validate regex before saving
@@ -759,20 +867,27 @@ def save_dup_config(
             env["DUP_CODE_REGEX"] = dup_code_regex.strip()
         except re.error:
             # If invalid regex, don't save and redirect back
-            logger.warning("Invalid regex pattern provided: %s", dup_code_regex)
+            logger.warning(
+                "Invalid regex pattern provided: %s", dup_code_regex)
             return RedirectResponse("/#filters", status_code=303)
     else:
         env.pop("DUP_CODE_REGEX", None)
 
-    env["ADMIN_PASSWORD"] = ADMIN_PASSWORD
-
-    save_env(env)
+    save_env_config(env)
 
     return RedirectResponse("/#filters", status_code=303)
 
 
 @app.post("/restart")
-def restart(_ = Depends(require_page_login)):
+def restart(_=Depends(require_page_login)):
+    """Terminate the current process to trigger service restart.
+
+    Args:
+        _ : Authentication dependency guard.
+
+    Returns:
+        RedirectResponse: Redirect to the dashboard.
+    """
 
     os.kill(os.getpid(), signal.SIGTERM)
 
@@ -780,7 +895,15 @@ def restart(_ = Depends(require_page_login)):
 
 
 @app.post("/clear-db")
-def clear_db(_ = Depends(require_page_login)):
+def clear_db(_=Depends(require_page_login)):
+    """Delete the SQLite database file and redirect to database tab.
+
+    Args:
+        _ : Authentication dependency guard.
+
+    Returns:
+        RedirectResponse: Redirect to the database section.
+    """
 
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
@@ -789,33 +912,58 @@ def clear_db(_ = Depends(require_page_login)):
     return RedirectResponse("/#db", status_code=303)
 
 
+def validate_readonly_query(query: str) -> str | None:
+    """Validate whether a query is allowed in the admin SQL endpoint.
+
+    Args:
+        query (str): SQL query text.
+
+    Returns:
+        str | None: Error message when invalid, otherwise None.
+    """
+    return app_services.validate_readonly_query(query)
+
+
+def run_select_query(query: str) -> tuple[list[str], list[tuple[Any, ...]]]:
+    """Execute a validated read-only SQL query.
+
+    Args:
+        query (str): SQL SELECT statement.
+
+    Returns:
+        tuple[list[str], list[tuple[Any, ...]]]: Columns and fetched rows.
+    """
+    return app_services.run_select_query(repository, query)
+
+
 @app.post("/execute-query")
 async def execute_query(
     request: Request,
-    _ = Depends(require_page_login)
+    _=Depends(require_page_login)
 ):
+    """Execute read-only SQL queries submitted from the admin UI.
+
+    Args:
+        request (Request): Incoming HTTP request with JSON payload.
+        _ : Authentication dependency guard.
+
+    Returns:
+        JSONResponse: Query result set or structured error payload.
+    """
 
     try:
         body = await request.json()
         query = body.get("query", "").strip()
 
-        if not query:
+        validation_error = validate_readonly_query(query)
+        if validation_error:
+            status_code = 403 if "SELECT" in validation_error else 400
             return JSONResponse(
-                {"error": "Query cannot be empty"},
-                status_code=400
+                {"error": validation_error},
+                status_code=status_code
             )
 
-        # Security: only allow SELECT queries
-        if not query.upper().startswith("SELECT"):
-            return JSONResponse(
-                {"error": "Only SELECT queries are allowed for safety"},
-                status_code=403
-            )
-
-        with db_mutex:
-            cursor = conn.execute(query)
-            rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+        columns, rows = run_select_query(query)
 
         return JSONResponse({
             "columns": columns,
@@ -838,39 +986,36 @@ async def execute_query(
 
 @app.post("/add-source-chat")
 def add_source_chat(
-    _ = Depends(require_page_login),
+    _=Depends(require_page_login),
     chat_id: str = Form(...),
     name: str = Form("")
 ):
+    """Add or update a source chat in configuration and label table.
+
+    Args:
+        _ : Authentication dependency guard.
+        chat_id (str): Source chat ID.
+        name (str): Optional display name for the chat.
+
+    Returns:
+        RedirectResponse: Redirect to configuration section.
+    """
 
     try:
         chat_id_int = int(chat_id)
     except ValueError:
         return RedirectResponse("/#config", status_code=303)
 
-    env = dotenv_values(ENV_PATH)
-
-    current = env.get("SOURCE_CHATS", "") or ""
-    parsed = [
-        int(x.strip())
-        for x in current.split(",")
-        if x.strip()
-    ]
+    env = load_env_config()
+    parsed = parse_chat_id_list(env.get("SOURCE_CHATS", "") or "")
 
     if chat_id_int not in parsed:
         parsed.append(chat_id_int)
 
     env["SOURCE_CHATS"] = ",".join(str(x) for x in parsed)
-    env["ADMIN_PASSWORD"] = ADMIN_PASSWORD
+    save_env_config(env)
 
-    save_env(env)
-
-    with db_mutex:
-        conn.execute(
-            "INSERT OR REPLACE INTO channels (chat_id, name) VALUES (?, ?)",
-            (chat_id_int, name.strip())
-        )
-        conn.commit()
+    repository.upsert_channel(chat_id_int, name.strip())
 
     global SOURCE_CHATS
     SOURCE_CHATS = parsed
@@ -882,111 +1027,100 @@ def add_source_chat(
 
 @app.post("/add-filter")
 def add_filter(
-    _ = Depends(require_page_login),
+    _=Depends(require_page_login),
     pattern: str = Form(...),
     replacement: str = Form("")
 ):
-    with db_mutex:
-        # Get max sort_order and add 1
-        max_order = cur.execute("SELECT COALESCE(MAX(sort_order), 0) FROM url_filters").fetchone()[0]
-        cur.execute(
-            "INSERT INTO url_filters (pattern, replacement, sort_order) VALUES (?, ?, ?)",
-            (pattern, replacement, max_order + 1)
-        )
-        conn.commit()
+    """Create a new URL transformation filter.
+
+    Args:
+        _ : Authentication dependency guard.
+        pattern (str): Regex pattern to match.
+        replacement (str): Replacement value or strategy token.
+
+    Returns:
+        RedirectResponse: Redirect to filters section.
+    """
+    repository.add_filter(pattern, replacement)
     return RedirectResponse("/#filters", status_code=303)
 
 
 @app.post("/update-filter")
 def update_filter(
-    _ = Depends(require_page_login),
+    _=Depends(require_page_login),
     filter_id: int = Form(...),
     pattern: str = Form(...),
     replacement: str = Form("")
 ):
-    with db_mutex:
-        cur.execute(
-            "UPDATE url_filters SET pattern=?, replacement=? WHERE id=?",
-            (pattern, replacement, filter_id)
-        )
-        conn.commit()
+    """Update an existing URL transformation filter.
+
+    Args:
+        _ : Authentication dependency guard.
+        filter_id (int): Filter identifier.
+        pattern (str): New regex pattern.
+        replacement (str): New replacement value.
+
+    Returns:
+        RedirectResponse: Redirect to filters section.
+    """
+    repository.update_filter(filter_id, pattern, replacement)
     return RedirectResponse("/#filters", status_code=303)
 
 
 @app.post("/delete-filter")
-def delete_filter(filter_id: int = Form(...), _ = Depends(require_page_login)):
-    with db_mutex:
-        cur.execute("DELETE FROM url_filters WHERE id=?", (filter_id,))
-        conn.commit()
+def delete_filter(filter_id: int = Form(...), _=Depends(require_page_login)):
+    """Delete one URL transformation filter by ID.
+
+    Args:
+        filter_id (int): Filter identifier.
+        _ : Authentication dependency guard.
+
+    Returns:
+        RedirectResponse: Redirect to filters section.
+    """
+    repository.delete_filter(filter_id)
     return RedirectResponse("/#filters", status_code=303)
 
 
 @app.post("/move-filter-up")
-def move_filter_up(filter_id: int = Form(...), _ = Depends(require_page_login)):
-    with db_mutex:
-        # Get current filter
-        current = cur.execute(
-            "SELECT id, sort_order FROM url_filters WHERE id=?", 
-            (filter_id,)
-        ).fetchone()
-        
-        if not current:
-            return RedirectResponse("/#filters", status_code=303)
-        
-        current_id, current_order = current
-        
-        # Get previous filter
-        previous = cur.execute(
-            "SELECT id, sort_order FROM url_filters WHERE sort_order < ? ORDER BY sort_order DESC LIMIT 1",
-            (current_order,)
-        ).fetchone()
-        
-        if previous:
-            prev_id, prev_order = previous
-            # Swap sort_order
-            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (prev_order, current_id))
-            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (current_order, prev_id))
-            conn.commit()
-    
+def move_filter_up(filter_id: int = Form(...), _=Depends(require_page_login)):
+    """Move a filter one position up in execution order.
+
+    Args:
+        filter_id (int): Filter identifier.
+        _ : Authentication dependency guard.
+
+    Returns:
+        RedirectResponse: Redirect to filters section.
+    """
+    move_filter(filter_id, move_up=True)
+
     return RedirectResponse("/#filters", status_code=303)
 
 
 @app.post("/move-filter-down")
-def move_filter_down(filter_id: int = Form(...), _ = Depends(require_page_login)):
-    with db_mutex:
-        # Get current filter
-        current = cur.execute(
-            "SELECT id, sort_order FROM url_filters WHERE id=?", 
-            (filter_id,)
-        ).fetchone()
-        
-        if not current:
-            return RedirectResponse("/#filters", status_code=303)
-        
-        current_id, current_order = current
-        
-        # Get next filter
-        next_filter = cur.execute(
-            "SELECT id, sort_order FROM url_filters WHERE sort_order > ? ORDER BY sort_order ASC LIMIT 1",
-            (current_order,)
-        ).fetchone()
-        
-        if next_filter:
-            next_id, next_order = next_filter
-            # Swap sort_order
-            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (next_order, current_id))
-            cur.execute("UPDATE url_filters SET sort_order=? WHERE id=?", (current_order, next_id))
-            conn.commit()
-    
+def move_filter_down(
+    filter_id: int = Form(...),
+    _=Depends(require_page_login)
+):
+    """Move a filter one position down in execution order.
+
+    Args:
+        filter_id (int): Filter identifier.
+        _ : Authentication dependency guard.
+
+    Returns:
+        RedirectResponse: Redirect to filters section.
+    """
+    move_filter(filter_id, move_up=False)
+
     return RedirectResponse("/#filters", status_code=303)
 
 
 # ================= BOT THREAD =================
 
 def run_bot():
-    """
-    Runs the Telegram client event loop.
-    """
+    """Start the Telegram client loop in a dedicated thread."""
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -995,8 +1129,9 @@ def run_bot():
         await client.connect()
         if not await client.is_user_authorized():
             await client.start()  # type: ignore
-        client.add_event_handler(handler, events.NewMessage(chats=SOURCE_CHATS))
-        await client.run_until_disconnected() # type: ignore
+        client.add_event_handler(
+            handler, events.NewMessage(chats=SOURCE_CHATS))
+        await client.run_until_disconnected()  # type: ignore
 
     try:
         loop.run_until_complete(main())
@@ -1007,11 +1142,14 @@ def run_bot():
 
 
 def parse_cleanup_time(value: str) -> tuple[int, int]:
-    """
-    Parses HH:MM string into hour and minute integers.
+    """Parse a cleanup schedule time in HH:MM format.
 
-    :param value: Time string in "HH:MM" format.
-    :return: Tuple (hour, minute). Defaults to (0, 5) on error.
+    Args:
+        value (str): Time string from configuration.
+
+    Returns:
+        tuple[int, int]: Parsed (hour, minute). Falls back to (0, 5) when
+        input is invalid.
     """
 
     try:
@@ -1027,11 +1165,13 @@ def parse_cleanup_time(value: str) -> tuple[int, int]:
 
 
 def parse_cleanup_days(value: str) -> int:
-    """
-    Parses the cleanup days configuration value.
+    """Parse cleanup retention days from configuration.
 
-    :param value: String value from config.
-    :return: Integer number of days, or default if invalid.
+    Args:
+        value (str): Raw configuration value.
+
+    Returns:
+        int: Parsed number of days, or default when invalid.
     """
 
     try:
@@ -1041,12 +1181,14 @@ def parse_cleanup_days(value: str) -> int:
 
 
 def seconds_until_next_run(hour: int, minute: int) -> int:
-    """
-    Calculates seconds remaining until the next scheduled time.
+    """Compute delay in seconds until the next scheduled execution.
 
-    :param hour: Scheduled hour (0-23).
-    :param minute: Scheduled minute (0-59).
-    :return: Seconds remaining.
+    Args:
+        hour (int): Target hour in 24h format.
+        minute (int): Target minute.
+
+    Returns:
+        int: Number of seconds until next run, with a 60-second minimum.
     """
 
     now = datetime.now()
@@ -1058,9 +1200,7 @@ def seconds_until_next_run(hour: int, minute: int) -> int:
 
 
 def cleanup_scheduler():
-    """
-    Background thread that runs daily cleanup tasks.
-    """
+    """Run periodic cleanup for processed messages and code cache."""
 
     while True:
         cfg = dotenv_values(ENV_PATH)
@@ -1070,11 +1210,13 @@ def cleanup_scheduler():
         time.sleep(seconds_until_next_run(hour, minute))
 
         cfg = dotenv_values(ENV_PATH)
-        days = parse_cleanup_days(cfg.get("CLEANUP_DAYS") or str(CLEANUP_DAYS_DEFAULT))
+        days = parse_cleanup_days(
+            cfg.get("CLEANUP_DAYS") or str(CLEANUP_DAYS_DEFAULT))
 
         if days > 0:
             removed = cleanup_processed(days)
-            logger.info("Cleanup removed %s rows older than %s days", removed, days)
+            logger.info(
+                "Cleanup removed %s rows older than %s days", removed, days)
 
         removed_codes = cleanup_code_cache()
         logger.info("Code cache cleanup removed %s rows", removed_codes)
@@ -1083,13 +1225,13 @@ def cleanup_scheduler():
 # ================= SHUTDOWN =================
 
 def shutdown():
+    """Persist shutdown state and close database resources safely."""
 
     stats["status"] = "stopped"
     save_stats(stats)
-    logger.info("Service stopped")
 
     try:
-        conn.close()
+        repository.close()
     except Exception:
         pass
 
