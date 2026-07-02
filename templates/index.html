@@ -54,6 +54,44 @@ body {
   align-items: center;
 }
 
+.version-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0c4a6e;
+  background: linear-gradient(180deg, #e0f2fe 0%, #dbeafe 100%);
+  border: 1px solid #bae6fd;
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.release-note {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border: 1px solid #c7d2fe;
+  background: linear-gradient(90deg, #eef2ff 0%, #f8fafc 100%);
+}
+
+.release-main {
+  color: #1e293b;
+  font-size: 0.92rem;
+}
+
+.release-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 .title-badge {
   width: 40px;
   height: 40px;
@@ -72,7 +110,7 @@ body {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   margin: 18px 0 22px;
 }
@@ -277,7 +315,16 @@ th {
 
 @media (max-width: 760px) {
   .tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .release-note {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .release-meta {
+    white-space: normal;
   }
 
   .form-grid,
@@ -307,6 +354,16 @@ th {
   </div>
 </div>
 
+<div class="release-note">
+  <div class="release-main">
+    <strong>Release:</strong> {{ dashboard_deploy_note }}
+  </div>
+  <div class="release-meta">
+    <span class="version-pill">v{{ dashboard_version }}</span>
+    <span style="margin-left: 10px;">Rendered: {{ dashboard_rendered_at }}</span>
+  </div>
+</div>
+
 <!-- Tabs -->
 <div class="tabs">
   <div class="tab active" onclick="openTab('status', this)">Status</div>
@@ -329,6 +386,16 @@ th {
     <div class="stat-card">
       <div class="stat-label">📩 Messages</div>
       <div class="stat-value">{{ stats.messages }}</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">🏷️ Dashboard Version</div>
+      <div class="stat-value">v{{ dashboard_version }}</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">🧩 Deploy Note</div>
+      <div class="stat-value">{{ dashboard_deploy_note }}</div>
     </div>
   </div>
 
