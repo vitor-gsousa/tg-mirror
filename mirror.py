@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import signal
 import secrets
@@ -124,6 +125,7 @@ except re.error as exc:
 
 db_mutex = threading.Lock()
 stats_lock = Lock()
+http_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="http_worker")
 
 
 # ================= STATS =================
@@ -680,7 +682,7 @@ async def increment_message_counter():
     """Increment mirrored-message counter and persist stats."""
     async with stats_lock:
         stats["messages"] += 1
-        save_stats(stats)
+        await asyncio.to_thread(save_stats, stats.copy())
 
 
 async def handler(event):
@@ -698,7 +700,7 @@ async def handler(event):
         return
 
     msg = event.message
-    text = await asyncio.to_thread(apply_filters, msg.raw_text or "")
+    text = await asyncio.get_event_loop().run_in_executor(http_executor, apply_filters, msg.raw_text or "")
     codes = deduplicate_codes(text)
 
     if await has_duplicate_codes(codes, chat_id, msg_id):
