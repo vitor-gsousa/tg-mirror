@@ -213,10 +213,14 @@ class SQLiteRepository:
             self._conn.commit()
             return self._cur.rowcount or 0
 
-    def clear_code_cache(self) -> int:
-        """Delete all deduplication code rows."""
+    def cleanup_code_cache(self, cutoff: str) -> int:
+        """Delete deduplication code rows older than cutoff timestamp."""
         with self._mutex:
-            self._cur.execute("DELETE FROM message_codes")
+            self._cur.execute(
+                "DELETE FROM message_codes WHERE created_at IS NOT NULL AND "
+                "created_at < ?",
+                (cutoff,)
+            )
             self._conn.commit()
             return self._cur.rowcount or 0
 
@@ -225,15 +229,16 @@ class SQLiteRepository:
         if not codes:
             return set()
 
-        placeholders = ",".join("?" for _ in codes)
-        query = (
-            "SELECT code FROM message_codes "
-            f"WHERE code IN ({placeholders})"
-        )
-
+        found = set()
+        chunk_size = 900
         with self._mutex:
-            rows = self._cur.execute(query, codes).fetchall()
-            return {row[0] for row in rows}
+            for i in range(0, len(codes), chunk_size):
+                chunk = codes[i:i + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                query = f"SELECT code FROM message_codes WHERE code IN ({placeholders})"
+                rows = self._cur.execute(query, chunk).fetchall()
+                found.update(row[0] for row in rows)
+        return found
 
     def mark_codes(self, codes: list[str]):
         """Persist deduplication codes ignoring existing entries."""
@@ -248,6 +253,22 @@ class SQLiteRepository:
                 "(code, created_at) VALUES (?, ?)",
                 rows
             )
+            self._conn.commit()
+
+    def delete_codes(self, codes: list[str]):
+        """Delete specific codes from storage (e.g. for rollback)."""
+        if not codes:
+            return
+
+        chunk_size = 900
+        with self._mutex:
+            for i in range(0, len(codes), chunk_size):
+                chunk = codes[i:i + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                self._cur.execute(
+                    f"DELETE FROM message_codes WHERE code IN ({placeholders})",
+                    chunk
+                )
             self._conn.commit()
 
     def execute_select(

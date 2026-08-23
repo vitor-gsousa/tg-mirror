@@ -76,9 +76,14 @@ def cleanup_processed(repository: SQLiteRepository, days: int) -> int:
     return repository.cleanup_processed(cutoff)
 
 
-def cleanup_code_cache(repository: SQLiteRepository) -> int:
-    """Clear all cached deduplication codes."""
-    return repository.clear_code_cache()
+def cleanup_code_cache(repository: SQLiteRepository, days: int) -> int:
+    """Clear deduplication codes older than retention."""
+    if days <= 0:
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    return repository.cleanup_code_cache(cutoff)
 
 
 def normalize_code(code: str) -> str:
@@ -140,3 +145,7 @@ def run_select_query(
 ) -> tuple[list[str], list[tuple[Any, ...]]]:
     """Execute a validated read-only SQL query."""
     return repository.execute_select(query)
+
+def delete_codes(repository: SQLiteRepository, codes: list[str]):
+    """Delete specific codes from storage (e.g. for rollback)."""
+    repository.delete_codes(codes)

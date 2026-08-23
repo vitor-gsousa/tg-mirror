@@ -80,10 +80,10 @@ SESSION_NAME = os.environ.get("SESSION", "mirror")
 WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 CLEANUP_DAYS_DEFAULT = 30
 CLEANUP_TIME_DEFAULT = "00:05"
-DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.07.02")
+DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.08.24")
 DASHBOARD_DEPLOY_NOTE = os.getenv(
     "DASHBOARD_DEPLOY_NOTE",
-    "Refactor: repository.py + services.py"
+    "Bugfixes: Race conditions, deduplication & perf"
 )
 
 
@@ -462,7 +462,7 @@ def apply_filters(text: str) -> str:
     for _, pattern, replacement in get_filters():
         try:
             if replacement == "amz":
-                urls = set(re.findall(pattern, text))
+                urls = sorted(set(re.findall(pattern, text)), key=len, reverse=True)
                 if not urls:
                     continue
 
@@ -545,14 +545,14 @@ def cleanup_processed(days: int) -> int:
     return app_services.cleanup_processed(repository, days)
 
 
-def cleanup_code_cache() -> int:
-    """Clear all cached deduplication codes.
+def cleanup_code_cache(days: int) -> int:
+    """Clear cached deduplication codes older than retention.
 
     Returns:
         int: Number of deleted rows.
     """
 
-    return app_services.cleanup_code_cache(repository)
+    return app_services.cleanup_code_cache(repository, days)
 
 
 def normalize_code(code: str) -> str:
@@ -599,8 +599,11 @@ def mark_codes(codes: list[str]):
     Args:
         codes (list[str]): Codes to insert when absent.
     """
-
     app_services.mark_codes(repository, codes)
+
+def delete_codes(codes: list[str]):
+    """Delete previously marked codes (rollback)."""
+    app_services.delete_codes(repository, codes)
 
 
 def deduplicate_codes(text: str) -> list[str]:
@@ -707,17 +710,20 @@ async def handler(event):
         await asyncio.to_thread(mark_processed, chat_id, msg_id)
         return
 
+    # Mark codes early to avoid race conditions
+    if codes:
+        await asyncio.to_thread(mark_codes, codes)
+
     if not await forward_event_message(msg, text, msg_id):
+        # Rollback codes if forwarding failed
+        if codes:
+            await asyncio.to_thread(delete_codes, codes)
         return
 
     logger.info("[OK] Forwarded %s:%s", chat_id, msg_id)
 
     # Save processed
     await asyncio.to_thread(mark_processed, chat_id, msg_id)
-
-    # Save codes
-    if codes:
-        await asyncio.to_thread(mark_codes, codes)
 
     # Update stats
     await increment_message_counter()
@@ -1205,23 +1211,25 @@ def cleanup_scheduler():
     """Run periodic cleanup for processed messages and code cache."""
 
     while True:
+        # Check every 60 seconds
+        time.sleep(60)
+
         cfg = dotenv_values(ENV_PATH)
         time_value = cfg.get("CLEANUP_TIME") or CLEANUP_TIME_DEFAULT
         hour, minute = parse_cleanup_time(time_value)
 
-        time.sleep(seconds_until_next_run(hour, minute))
+        now = datetime.now()
+        if now.hour == hour and now.minute == minute:
+            days = parse_cleanup_days(
+                cfg.get("CLEANUP_DAYS") or str(CLEANUP_DAYS_DEFAULT))
 
-        cfg = dotenv_values(ENV_PATH)
-        days = parse_cleanup_days(
-            cfg.get("CLEANUP_DAYS") or str(CLEANUP_DAYS_DEFAULT))
+            if days > 0:
+                removed = cleanup_processed(days)
+                logger.info(
+                    "Cleanup removed %s rows older than %s days", removed, days)
 
-        if days > 0:
-            removed = cleanup_processed(days)
-            logger.info(
-                "Cleanup removed %s rows older than %s days", removed, days)
-
-        removed_codes = cleanup_code_cache()
-        logger.info("Code cache cleanup removed %s rows", removed_codes)
+            removed_codes = cleanup_code_cache(days)
+            logger.info("Code cache cleanup removed %s rows", removed_codes)
 
 
 # ================= SHUTDOWN =================
