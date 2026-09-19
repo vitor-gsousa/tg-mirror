@@ -458,7 +458,7 @@ th {
 
     <div class="stat-card">
       <div class="stat-label">Last message mirrored</div>
-      <div class="stat-value">{{ last_message_at or "—" }}</div>
+      <div class="stat-value" id="last-message-at" data-utc="{{ last_message_at_iso or '' }}">{{ last_message_at or "—" }}</div>
     </div>
 
     <div class="stat-card">
@@ -844,6 +844,15 @@ window.addEventListener('DOMContentLoaded', function() {
   if (hash && VALID_TABS.includes(hash)) {
     const tabElement = document.querySelector(`.tab[onclick*="'${hash}'"]`)
     openTab(hash, tabElement)
+  }
+
+  // Show last-message timestamp in local (browser/server) timezone instead of raw UTC
+  const lastMsgEl = document.getElementById("last-message-at")
+  if (lastMsgEl && lastMsgEl.dataset.utc) {
+    const d = new Date(lastMsgEl.dataset.utc)
+    if (!isNaN(d.getTime())) {
+      lastMsgEl.textContent = d.toLocaleString()
+    }
   }
 })
 

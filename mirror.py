@@ -80,10 +80,10 @@ SESSION_NAME = os.environ.get("SESSION", "mirror")
 WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 CLEANUP_DAYS_DEFAULT = 30
 CLEANUP_TIME_DEFAULT = "00:05"
-DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.09.19")
+DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.09.20")
 DASHBOARD_DEPLOY_NOTE = os.getenv(
     "DASHBOARD_DEPLOY_NOTE",
-    "Dashboard redesign: live connection/uptime/DB stats, decluttered UI"
+    "Show last-message timestamp in local timezone instead of UTC"
 )
 
 
@@ -250,6 +250,25 @@ repository = SQLiteRepository(conn, cur, db_mutex)
 def utc_now_string() -> str:
     """Return the current UTC timestamp formatted for SQLite."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _to_utc_iso(timestamp: str | None) -> str | None:
+    """Convert a naive 'YYYY-MM-DD HH:MM:SS' UTC timestamp to an ISO 8601 string.
+
+    Lets the browser convert it to local time client-side (Date() parses a
+    trailing 'Z' as UTC), instead of rendering the raw UTC string server-side.
+    """
+
+    if not timestamp:
+        return None
+    try:
+        return (
+            datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+            .replace(tzinfo=timezone.utc)
+            .isoformat()
+        )
+    except ValueError:
+        return None
 
 
 def init_db():
@@ -827,6 +846,7 @@ def index(request: Request, _=Depends(require_page_login)):
                 (datetime.now(timezone.utc) - PROCESS_STARTED_AT).total_seconds()
             ),
             "last_message_at": stats_data.get("last_message_at"),
+            "last_message_at_iso": _to_utc_iso(stats_data.get("last_message_at")),
             "db_size": format_bytes(db_stats["db_size_bytes"]),
             "processed_count": db_stats["processed_count"],
             "code_count": db_stats["code_count"],
