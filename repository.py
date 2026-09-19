@@ -224,6 +224,18 @@ class SQLiteRepository:
             self._conn.commit()
             return self._cur.rowcount or 0
 
+    def clear_history(self):
+        """Delete all processed-message and dedup code records.
+
+        Keeps channel labels and URL filters intact, and reclaims the
+        freed disk space via VACUUM.
+        """
+        with self._mutex:
+            self._cur.execute("DELETE FROM processed")
+            self._cur.execute("DELETE FROM message_codes")
+            self._conn.commit()
+            self._conn.execute("VACUUM")
+
     def find_existing_codes(self, codes: list[str]) -> set[str]:
         """Return which codes from input already exist in storage."""
         if not codes:

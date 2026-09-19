@@ -153,10 +153,12 @@ def save_stats(data: dict[str, Any]):
     Args:
         data (dict[str, Any]): Stats payload to be saved.
     """
-    with open(STATS_PATH, "w") as f:
+    tmp_path = f"{STATS_PATH}.tmp"
+    with open(tmp_path, "w") as f:
         json.dump(data, f)
         f.flush()
         os.fsync(f.fileno())
+    os.replace(tmp_path, STATS_PATH)
 
 
 stats = load_stats()
@@ -225,7 +227,10 @@ app.add_middleware(
     max_age=3600 * 24 * 7  # 1 week
 )
 
-templates = Jinja2Templates(directory="/app/templates")
+_templates_dir = os.path.join(SCRIPT_DIR, "templates")
+TEMPLATES_DIR = _templates_dir if os.path.exists(
+    _templates_dir) else "/app/templates"
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 # ================= AUTH =================
@@ -258,7 +263,7 @@ async def handle_login(request: Request, password: str = Form(...)):
         RedirectResponse | HTMLResponse: Redirect to home on success or render
         the login template with an error message on failure.
     """
-    if password == ADMIN_PASSWORD:
+    if secrets.compare_digest(password, ADMIN_PASSWORD):
         request.session["authenticated"] = True
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     else:
@@ -344,7 +349,8 @@ def save_env(data: dict[str, Any]):
     with open(ENV_PATH, "w") as f:
         for k, v in data.items():
             if v is not None:
-                f.write(f"{k}={v}\n")
+                safe_value = str(v).replace("\r", "").replace("\n", "")
+                f.write(f"{k}={safe_value}\n")
 
 
 def load_env_config() -> dict[str, Any]:
@@ -904,7 +910,8 @@ def restart(_=Depends(require_page_login)):
 
 @app.post("/clear-db")
 def clear_db(_=Depends(require_page_login)):
-    """Delete the SQLite database file and redirect to database tab.
+    """Clear processed-message and dedup history, then redirect to the
+    database tab.
 
     Args:
         _ : Authentication dependency guard.
@@ -913,9 +920,8 @@ def clear_db(_=Depends(require_page_login)):
         RedirectResponse: Redirect to the database section.
     """
 
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-        logger.info("Database cleared")
+    repository.clear_history()
+    logger.info("Database history cleared")
 
     return RedirectResponse("/#db", status_code=303)
 
