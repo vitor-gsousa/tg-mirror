@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A single-service Telegram mirror bot: it listens on source chats (via Telethon) and forwards new messages to one destination chat, applying configurable URL/regex filters and code-based deduplication along the way. It ships with a small FastAPI admin web UI (password-protected) for configuration, live stats, log tailing, filter management, and ad-hoc read-only SQL against the state DB. Runs as a single container, typically on a self-hosted ARM device (Tanix TX2).
 
+## Conventions
+
+- **Bump the dashboard version marker on every code change.** `DASHBOARD_VERSION` and `DASHBOARD_DEPLOY_NOTE` (defaults in `mirror.py`, near the top `# ================= CONFIG =================` section) are shown in the admin UI footer (`templates/index.html`) as the only visible indicator of what's actually deployed on the device. When you change `mirror.py`, `repository.py`, or `services.py`, update `DASHBOARD_VERSION`'s default to the current date (`YYYY.MM.DD`) and `DASHBOARD_DEPLOY_NOTE`'s default to a short summary of the change — otherwise the dashboard keeps showing a stale version after deploy, making it impossible to confirm a fix actually shipped to the self-hosted runner.
+
 ## Commands
 
 ```bash

@@ -80,10 +80,11 @@ SESSION_NAME = os.environ.get("SESSION", "mirror")
 WEB_PORT = int(os.getenv("WEB_PORT", "8000"))
 CLEANUP_DAYS_DEFAULT = 30
 CLEANUP_TIME_DEFAULT = "00:05"
-DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.08.24")
+DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.09.19")
 DASHBOARD_DEPLOY_NOTE = os.getenv(
     "DASHBOARD_DEPLOY_NOTE",
-    "Bugfixes: Race conditions, deduplication & perf"
+    "Security & reliability: template path, atomic stats, "
+    "constant-time auth, safer DB clear"
 )
 
 
