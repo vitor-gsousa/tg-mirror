@@ -224,6 +224,18 @@ class SQLiteRepository:
             self._conn.commit()
             return self._cur.rowcount or 0
 
+    def count_processed(self) -> int:
+        """Return the total number of processed-message rows."""
+        with self._mutex:
+            self._cur.execute("SELECT COUNT(*) FROM processed")
+            return self._cur.fetchone()[0]
+
+    def count_codes(self) -> int:
+        """Return the total number of cached dedup codes."""
+        with self._mutex:
+            self._cur.execute("SELECT COUNT(*) FROM message_codes")
+            return self._cur.fetchone()[0]
+
     def clear_history(self):
         """Delete all processed-message and dedup code records.
 

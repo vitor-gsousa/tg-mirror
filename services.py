@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -149,3 +150,27 @@ def run_select_query(
 def delete_codes(repository: SQLiteRepository, codes: list[str]):
     """Delete specific codes from storage (e.g. for rollback)."""
     repository.delete_codes(codes)
+
+
+def get_db_stats(repository: SQLiteRepository, db_path: str) -> dict[str, Any]:
+    """Aggregate database size and row counts for dashboard rendering."""
+    try:
+        db_size_bytes = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    except OSError:
+        db_size_bytes = 0
+
+    try:
+        processed_count = repository.count_processed()
+    except Exception:
+        processed_count = 0
+
+    try:
+        code_count = repository.count_codes()
+    except Exception:
+        code_count = 0
+
+    return {
+        "db_size_bytes": db_size_bytes,
+        "processed_count": processed_count,
+        "code_count": code_count,
+    }

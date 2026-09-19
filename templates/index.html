@@ -15,6 +15,8 @@
   --border: #e2e8f0;
   --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
   --radius: 14px;
+  --ok: #16a34a;
+  --bad: #dc2626;
 }
 
 * {
@@ -57,15 +59,13 @@ body {
 .version-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #0c4a6e;
-  background: linear-gradient(180deg, #e0f2fe 0%, #dbeafe 100%);
-  border: 1px solid #bae6fd;
-  padding: 6px 10px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
   border-radius: 999px;
 }
 
@@ -77,8 +77,8 @@ body {
   padding: 12px 14px;
   margin-bottom: 16px;
   border-radius: 12px;
-  border: 1px solid #c7d2fe;
-  background: linear-gradient(90deg, #eef2ff 0%, #f8fafc 100%);
+  border: 1px solid var(--border);
+  background: var(--card);
 }
 
 .release-main {
@@ -100,7 +100,9 @@ body {
   background: rgba(28, 147, 227, 0.12);
   color: var(--primary);
   border-radius: 10px;
-  font-size: 18px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .subtitle {
@@ -153,7 +155,7 @@ body {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 18px;
 }
@@ -165,6 +167,10 @@ body {
   border: 1px solid var(--border);
 }
 
+.stat-card.wide {
+  grid-column: 1 / -1;
+}
+
 .stat-label {
   font-size: 0.9rem;
   color: var(--muted);
@@ -174,6 +180,44 @@ body {
   font-size: 1.25rem;
   font-weight: 700;
   margin-top: 6px;
+  display: flex;
+  align-items: center;
+}
+
+.stat-subgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.stat-sub-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.stat-sub-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.dot.ok {
+  background: var(--ok);
+}
+
+.dot.bad {
+  background: var(--bad);
 }
 
 .form-grid {
@@ -313,6 +357,13 @@ th {
   letter-spacing: 0.04em;
 }
 
+@media (max-width: 1000px) {
+  .stats-grid,
+  .stat-subgrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 760px) {
   .tabs {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -328,7 +379,8 @@ th {
   }
 
   .form-grid,
-  .stats-grid {
+  .stats-grid,
+  .stat-subgrid {
     grid-template-columns: 1fr;
   }
 }
@@ -341,7 +393,7 @@ th {
 
 <div class="header">
   <div class="title">
-    <div class="title-badge">✈️</div>
+    <div class="title-badge">TM</div>
     <div>
       <h2>Telegram Mirror</h2>
       <div class="subtitle">Control and configuration panel</div>
@@ -379,23 +431,57 @@ th {
 
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-label">🟢 Status</div>
-      <div class="stat-value">{{ stats.status }}</div>
+      <div class="stat-label">Service</div>
+      <div class="stat-value">
+        <span class="dot {{ 'ok' if stats.status == 'running' else 'bad' }}"></span>
+        {{ stats.status }}
+      </div>
     </div>
 
     <div class="stat-card">
-      <div class="stat-label">📩 Messages</div>
+      <div class="stat-label">Telegram connection</div>
+      <div class="stat-value">
+        <span class="dot {{ 'ok' if bot_connected else 'bad' }}"></span>
+        {{ "Connected" if bot_connected else "Disconnected" }}
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Uptime</div>
+      <div class="stat-value">{{ uptime }}</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-label">Messages mirrored</div>
       <div class="stat-value">{{ stats.messages }}</div>
     </div>
 
     <div class="stat-card">
-      <div class="stat-label">🏷️ Dashboard Version</div>
-      <div class="stat-value">v{{ dashboard_version }}</div>
+      <div class="stat-label">Last message mirrored</div>
+      <div class="stat-value">{{ last_message_at or "—" }}</div>
     </div>
 
     <div class="stat-card">
-      <div class="stat-label">🧩 Deploy Note</div>
-      <div class="stat-value">{{ dashboard_deploy_note }}</div>
+      <div class="stat-label">Source chats monitored</div>
+      <div class="stat-value">{{ source_chats_count }}</div>
+    </div>
+
+    <div class="stat-card wide">
+      <div class="stat-label">Database</div>
+      <div class="stat-subgrid">
+        <div>
+          <div class="stat-sub-label">Size on disk</div>
+          <div class="stat-sub-value">{{ db_size }}</div>
+        </div>
+        <div>
+          <div class="stat-sub-label">Processed messages</div>
+          <div class="stat-sub-value">{{ processed_count }}</div>
+        </div>
+        <div>
+          <div class="stat-sub-label">Dedup codes cached</div>
+          <div class="stat-sub-value">{{ code_count }}</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -660,6 +746,7 @@ th {
 </div>
 
 <script>
+const VALID_TABS = ['status', 'config', 'filters', 'logs', 'stats', 'db']
 let logsIntervalId = null
 let isLoadingLogs = false
 
@@ -753,9 +840,8 @@ function openTab(name, el){
 // Restore active tab from URL hash on page load
 window.addEventListener('DOMContentLoaded', function() {
   const hash = window.location.hash.slice(1)
-  const validTabs = ['status', 'config', 'filters', 'logs', 'stats', 'db']
 
-  if (hash && validTabs.includes(hash)) {
+  if (hash && VALID_TABS.includes(hash)) {
     const tabElement = document.querySelector(`.tab[onclick*="'${hash}'"]`)
     openTab(hash, tabElement)
   }
@@ -764,9 +850,8 @@ window.addEventListener('DOMContentLoaded', function() {
 // Handle browser back/forward buttons
 window.addEventListener('hashchange', function() {
   const hash = window.location.hash.slice(1)
-  const validTabs = ['status', 'config', 'filters', 'logs', 'stats', 'db']
 
-  if (hash && validTabs.includes(hash)) {
+  if (hash && VALID_TABS.includes(hash)) {
     const tabElement = document.querySelector(`.tab[onclick*="'${hash}'"]`)
     openTab(hash, tabElement)
   }

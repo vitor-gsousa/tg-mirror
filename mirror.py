@@ -83,8 +83,7 @@ CLEANUP_TIME_DEFAULT = "00:05"
 DASHBOARD_VERSION = os.getenv("DASHBOARD_VERSION", "2026.09.19")
 DASHBOARD_DEPLOY_NOTE = os.getenv(
     "DASHBOARD_DEPLOY_NOTE",
-    "Security & reliability: template path, atomic stats, "
-    "constant-time auth, safer DB clear"
+    "Dashboard redesign: live connection/uptime/DB stats, decluttered UI"
 )
 
 
@@ -130,6 +129,59 @@ http_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="http_worke
 
 
 # ================= STATS =================
+
+PROCESS_STARTED_AT = datetime.now(timezone.utc)
+
+
+def format_uptime(seconds: float) -> str:
+    """Format an uptime duration in seconds as a compact human string.
+
+    Args:
+        seconds (float): Elapsed time in seconds.
+
+    Returns:
+        str: Compact duration such as "3d 4h", "2h 5m" or "5m".
+    """
+    total = max(0, int(seconds))
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def format_bytes(num_bytes: int) -> str:
+    """Format a byte count as a human-readable size string.
+
+    Args:
+        num_bytes (int): Size in bytes.
+
+    Returns:
+        str: Size formatted with the largest fitting unit (B/KB/MB/GB).
+    """
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def is_bot_connected() -> bool:
+    """Check whether the Telethon client currently has a live connection.
+
+    Returns:
+        bool: True when connected to Telegram, False otherwise.
+    """
+    try:
+        return client.is_connected()
+    except Exception:
+        return False
+
 
 def load_stats() -> dict[str, Any]:
     """Load service metrics from disk.
@@ -692,6 +744,7 @@ async def increment_message_counter():
     """Increment mirrored-message counter and persist stats."""
     async with stats_lock:
         stats["messages"] += 1
+        stats["last_message_at"] = utc_now_string()
         await asyncio.to_thread(save_stats, stats.copy())
 
 
@@ -754,6 +807,7 @@ def index(request: Request, _=Depends(require_page_login)):
     stats_data = get_stats()
     channel_stats = get_channel_stats()
     filters = get_filters()
+    db_stats = app_services.get_db_stats(repository, DB_PATH)
 
     return templates.TemplateResponse(
         request,
@@ -767,7 +821,16 @@ def index(request: Request, _=Depends(require_page_login)):
             "dashboard_deploy_note": DASHBOARD_DEPLOY_NOTE,
             "dashboard_rendered_at": datetime.now(timezone.utc).strftime(
                 "%Y-%m-%d %H:%M UTC"
-            )
+            ),
+            "bot_connected": is_bot_connected(),
+            "uptime": format_uptime(
+                (datetime.now(timezone.utc) - PROCESS_STARTED_AT).total_seconds()
+            ),
+            "last_message_at": stats_data.get("last_message_at"),
+            "db_size": format_bytes(db_stats["db_size_bytes"]),
+            "processed_count": db_stats["processed_count"],
+            "code_count": db_stats["code_count"],
+            "source_chats_count": len(SOURCE_CHATS)
         }
     )
 
