@@ -21,7 +21,7 @@ cd tg-mirror
 1. Copy the example file to create your environment file:
 
    ```bash
-   cp .env.example .env
+   cp config/.env.example config/.env
    ```
 
 2. Edit the `.env` file and fill in the variables:
